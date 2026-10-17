@@ -2,16 +2,19 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
 }
+
 android {
-    namespace 'com.porter.tz.vip'
+    namespace 'com.zuauto.porter.vip'
     compileSdk 34
+
     defaultConfig {
-        applicationId "com.porter.tz.vip"
+        applicationId "com.zuauto.porter.vip"
         minSdk 26
         targetSdk 34
-        versionCode 9
-        versionName "9.0-CyberEdition"
+        versionCode 10
+        versionName "10.0-ZuAuto"
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -20,6 +23,7 @@ android {
         jvmTarget = '17'
     }
 }
+
 dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'

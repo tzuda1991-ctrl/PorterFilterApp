@@ -1,4 +1,4 @@
-package com.porter.tz.vip
+package com.zuauto.porter.vip
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -31,9 +31,8 @@ class FloatingControlService : Service() {
     override fun onCreate() {
         super.onCreate()
         startForegroundShield()
-
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
 
         floatingBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -109,7 +108,7 @@ class FloatingControlService : Service() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { leftMargin = 8 }
             setOnClickListener {
-                Toast.makeText(this@FloatingControlService, "ZU Smart HUD Closed", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@FloatingControlService, "ZuAuto HUD Closed", Toast.LENGTH_SHORT).show()
                 stopSelf()
             }
         }
@@ -166,7 +165,7 @@ class FloatingControlService : Service() {
                         val current = prefs.getBoolean("BOT_ACTIVE", true)
                         prefs.edit().putBoolean("BOT_ACTIVE", !current).apply()
                         updateVisualState()
-                        val msg = if (!current) "ZU Smart: ARMED" else "ZU Smart: STANDBY"
+                        val msg = if (!current) "ZuAuto: ARMED" else "ZuAuto: STANDBY"
                         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                     }
                     true
@@ -184,7 +183,7 @@ class FloatingControlService : Service() {
     }
 
     private fun updateVisualState() {
-        val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         val isEnabled = prefs.getBoolean("BOT_ACTIVE", true)
         val usePickup = prefs.getBoolean("USE_PICKUP_FILTER", false)
         val useDrop = prefs.getBoolean("USE_DROP_FILTER", false)
@@ -215,18 +214,18 @@ class FloatingControlService : Service() {
     }
 
     private fun startForegroundShield() {
-        val channelId = "zu_smart_overlay_channel"
+        val channelId = "zuauto_overlay_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "ZU Smart Controller",
+                "ZuAuto VIP HUD Controller",
                 NotificationManager.IMPORTANCE_LOW
             )
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
 
             val notification = Notification.Builder(this, channelId)
-                .setContentTitle("ZU Smart Active")
+                .setContentTitle("ZuAuto VIP Active")
                 .setContentText("Autonomous Dispatch HUD Running")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build()

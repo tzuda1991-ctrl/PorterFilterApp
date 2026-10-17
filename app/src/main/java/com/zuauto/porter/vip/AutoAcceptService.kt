@@ -1,4 +1,4 @@
-package com.porter.tz.vip
+package com.zuauto.porter.vip
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -34,8 +34,13 @@ class AutoAcceptService : AccessibilityService() {
     )
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("BOT_ACTIVE", true)) return
+
+        // Check subscription validity
+        if (!ZuAutoCloudManager.isSubscriptionActive(this)) {
+            return
+        }
 
         val currentTime = System.currentTimeMillis()
         if (currentTime - lastSwipeTime < 5000) return
@@ -79,6 +84,7 @@ class AutoAcceptService : AccessibilityService() {
         var targetAcceptNode: NodeItem? = null
         val minY = (metrics.heightPixels * 0.25).toInt()
         val maxY = (metrics.heightPixels * 0.80).toInt()
+
         for (item in nodes) {
             val t = item.text.trim()
             val validText = t.equals("Accept", ignoreCase = true) || t.contains("Swipe to Accept", ignoreCase = true)
@@ -87,6 +93,7 @@ class AutoAcceptService : AccessibilityService() {
                 break
             }
         }
+
         val acceptNode = targetAcceptNode ?: return
         val acceptCenterY = acceptNode.bounds.centerY()
 
@@ -120,6 +127,7 @@ class AutoAcceptService : AccessibilityService() {
                     firstKmTopY = item.bounds.top
                 }
             }
+
             for (item in nodes) {
                 if (item.bounds.centerY() < firstKmTopY) {
                     val cleanText = item.text.replace("₹", "").replace(",", "").trim()
@@ -167,7 +175,6 @@ class AutoAcceptService : AccessibilityService() {
 
         val usePickupFilter = prefs.getBoolean("USE_PICKUP_FILTER", false)
         val pickupQueryStr = prefs.getString("PICKUP_FILTER", "")?.trim() ?: ""
-
         val useDropFilter = prefs.getBoolean("USE_DROP_FILTER", false)
         val dropQueryStr = prefs.getString("DROP_FILTER", "")?.trim() ?: ""
 
@@ -208,10 +215,21 @@ class AutoAcceptService : AccessibilityService() {
         val speedMode = prefs.getString("SWIPE_SPEED", "QUICK") ?: "QUICK"
         lastSwipeTime = currentTime
 
+        // Log to local history and Cloud Firestore
+        val city = prefs.getString("SELECTED_CITY", "Bengaluru") ?: "Bengaluru"
+        ZuAutoCloudManager.recordAcceptedOrder(
+            context = applicationContext,
+            fare = orderFare,
+            pickup = pickupFullBlock.take(45),
+            drop = dropFullBlock.take(45),
+            city = city,
+            speed = speedMode
+        )
+
         mainHandler.post {
             Toast.makeText(
                 applicationContext,
-                "⚡ ZU Smart: ₹$orderFare Accepted ($speedMode)",
+                "⚡ ZuAuto VIP: ₹$orderFare Accepted ($speedMode)",
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -221,7 +239,6 @@ class AutoAcceptService : AccessibilityService() {
 
     private fun matchesAreaInAddressBlock(addressBlock: String, selectedArea: String): Boolean {
         if (addressBlock.isBlank() || selectedArea.isBlank()) return false
-
         val normalizedBlock = addressBlock.lowercase()
             .replace(".", " ")
             .replace("-", " ")
@@ -248,6 +265,7 @@ class AutoAcceptService : AccessibilityService() {
         screenH: Int
     ) {
         if (node == null || !node.isVisibleToUser) return
+
         val t = node.text?.toString()?.trim()
         val d = node.contentDescription?.toString()?.trim()
         val finalStr = if (!t.isNullOrEmpty()) t else d
@@ -259,6 +277,7 @@ class AutoAcceptService : AccessibilityService() {
                 list.add(NodeItem(finalStr, rect))
             }
         }
+
         for (i in 0 until node.childCount) {
             collectVisibleNodes(node.getChild(i), list, screenW, screenH)
         }
