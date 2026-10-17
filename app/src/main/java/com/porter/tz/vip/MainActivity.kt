@@ -25,7 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var masterToggleSwitch: Switch
     private lateinit var minFareInput: EditText
 
-    private var selectedSpeed = "NORMAL"
+    private var selectedSpeed = "QUICK"
     private var selectedCity = "Bengaluru"
 
     private val selectedPickupSet = mutableSetOf<String>()
@@ -92,7 +92,6 @@ class MainActivity : AppCompatActivity() {
             selectedDropSet.addAll(it)
         }
 
-        // FULL-SCREEN PROPORTIONAL ROOT (Fills 100% height, zero dead space, zero scroll)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable(
@@ -103,30 +102,30 @@ class MainActivity : AppCompatActivity() {
                     Color.parseColor("#070B14")
                 )
             )
-            setPadding(dp(16), dp(14), dp(16), dp(16))
+            setPadding(dp(16), dp(12), dp(16), dp(16))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.MATCH_PARENT
             )
         }
 
-        // ================= 1. LUXURY COCKPIT HEADER (Weight 1.2) =================
+        // ================= 1. FIXED HEADER CARD (No text cut) =================
         val headerCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(14))
+            setPadding(dp(16), dp(10), dp(16), dp(10))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 intArrayOf(Color.parseColor("#162038"), Color.parseColor("#0F172A"))
             ).apply {
-                cornerRadius = dp(22).toFloat()
+                cornerRadius = dp(20).toFloat()
                 setStroke(dp(1), Color.parseColor("#2DD4BF"))
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
-                1.25f
-            ).apply { bottomMargin = dp(12) }
+                1.15f
+            ).apply { bottomMargin = dp(10) }
         }
 
         val topRow = LinearLayout(this).apply {
@@ -136,7 +135,7 @@ class MainActivity : AppCompatActivity() {
 
         val logoImg = ImageView(this).apply {
             setImageResource(R.drawable.ic_vip_logo)
-            layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { rightMargin = dp(14) }
+            layoutParams = LinearLayout.LayoutParams(dp(38), dp(38)).apply { rightMargin = dp(12) }
         }
 
         val brandCol = LinearLayout(this).apply {
@@ -146,7 +145,7 @@ class MainActivity : AppCompatActivity() {
 
         val brandName = TextView(this).apply {
             text = "ZU Smart"
-            textSize = 21f
+            textSize = 18f
             setTextColor(Color.WHITE)
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
             letterSpacing = 0.04f
@@ -154,19 +153,19 @@ class MainActivity : AppCompatActivity() {
 
         val brandTag = TextView(this).apply {
             text = "AUTONOMOUS DISPATCH SYSTEM"
-            textSize = 9.5f
+            textSize = 8.5f
             setTextColor(Color.parseColor("#2DD4BF"))
             typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.12f
+            letterSpacing = 0.08f
         }
 
         brandCol.addView(brandName)
         brandCol.addView(brandTag)
 
         statusBadge = TextView(this).apply {
-            textSize = 10f
+            textSize = 9.5f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(14), dp(6), dp(14), dp(6))
+            setPadding(dp(10), dp(4), dp(10), dp(4))
         }
 
         topRow.addView(logoImg)
@@ -178,7 +177,7 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(1)
-            ).apply { topMargin = dp(10); bottomMargin = dp(8) }
+            ).apply { topMargin = dp(6); bottomMargin = dp(6) }
         }
 
         val masterRow = LinearLayout(this).apply {
@@ -187,7 +186,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         masterStatusText = TextView(this).apply {
-            textSize = 12f
+            textSize = 11.5f
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
@@ -215,23 +214,22 @@ class MainActivity : AppCompatActivity() {
         headerCard.addView(masterRow)
         root.addView(headerCard)
 
-        // ================= 2. FARE STEPPER & CITY HUB (Weight 1.25) =================
+        // ================= 2. FARE STEPPER & CITY HUB =================
         val midRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             weightSum = 2f
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
-                1.25f
-            ).apply { bottomMargin = dp(12) }
+                1.2f
+            ).apply { bottomMargin = dp(10) }
         }
 
-        // Left Card: Interactive Fare Control
         val fareCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = createGlassCard("#111A2E", "#1E293B", 20)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = createGlassCard("#111A2E", "#1E293B", 18)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1.1f).apply {
                 rightMargin = dp(6)
             }
@@ -243,12 +241,12 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
+            ).apply { bottomMargin = dp(6) }
         }
 
         val fareTitle = TextView(this).apply {
             text = "MIN FARE (₹)"
-            textSize = 11f
+            textSize = 10.5f
             setTextColor(Color.parseColor("#94A3B8"))
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = 0.06f
@@ -270,12 +268,12 @@ class MainActivity : AppCompatActivity() {
 
         val minusBtn = TextView(this).apply {
             text = "−"
-            textSize = 18f
+            textSize = 16f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            background = createGlassCard("#1E293B", "#334155", 12)
-            layoutParams = LinearLayout.LayoutParams(dp(38), dp(42))
+            background = createGlassCard("#1E293B", "#334155", 10)
+            layoutParams = LinearLayout.LayoutParams(dp(34), dp(38))
             setOnClickListener {
                 val cur = minFareInput.text.toString().toIntOrNull() ?: 200
                 val next = (cur - 20).coerceAtLeast(50)
@@ -286,26 +284,26 @@ class MainActivity : AppCompatActivity() {
         minFareInput = EditText(this).apply {
             setText(prefs.getInt("MIN_FARE", 200).toString())
             setTextColor(Color.parseColor("#2DD4BF"))
-            textSize = 18f
+            textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             inputType = InputType.TYPE_CLASS_NUMBER
-            setPadding(dp(4), dp(6), dp(4), dp(6))
-            background = createGlassCard("#070B14", "#2DD4BF", 12)
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-                leftMargin = dp(6)
-                rightMargin = dp(6)
+            setPadding(dp(2), dp(4), dp(2), dp(4))
+            background = createGlassCard("#070B14", "#2DD4BF", 10)
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                leftMargin = dp(4)
+                rightMargin = dp(4)
             }
         }
 
         val plusBtn = TextView(this).apply {
             text = "+"
-            textSize = 18f
+            textSize = 16f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            background = createGlassCard("#1E293B", "#334155", 12)
-            layoutParams = LinearLayout.LayoutParams(dp(38), dp(42))
+            background = createGlassCard("#1E293B", "#334155", 10)
+            layoutParams = LinearLayout.LayoutParams(dp(34), dp(38))
             setOnClickListener {
                 val cur = minFareInput.text.toString().toIntOrNull() ?: 200
                 val next = cur + 20
@@ -329,12 +327,11 @@ class MainActivity : AppCompatActivity() {
         fareCard.addView(fareHead)
         fareCard.addView(stepperRow)
 
-        // Right Card: City Hub Selector
         val cityCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = createGlassCard("#111A2E", "#1E293B", 20)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = createGlassCard("#111A2E", "#1E293B", 18)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.9f).apply {
                 leftMargin = dp(6)
             }
@@ -342,23 +339,23 @@ class MainActivity : AppCompatActivity() {
 
         val cityHead = TextView(this).apply {
             text = "OPERATING REGION"
-            textSize = 10.5f
+            textSize = 10f
             setTextColor(Color.parseColor("#94A3B8"))
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = 0.06f
-            setPadding(0, 0, 0, dp(10))
+            setPadding(0, 0, 0, dp(8))
         }
 
         val citySelectBtn = TextView(this).apply {
             text = "$selectedCity  ▾"
-            textSize = 15f
+            textSize = 14f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            background = createGlassCard("#070B14", "#38BDF8", 12)
+            background = createGlassCard("#070B14", "#38BDF8", 10)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(42)
+                dp(38)
             )
         }
 
@@ -369,26 +366,26 @@ class MainActivity : AppCompatActivity() {
         midRow.addView(cityCard)
         root.addView(midRow)
 
-        // ================= 3. ROUTE INTELLIGENCE MATRIX (Weight 2.3) =================
+        // ================= 3. ROUTE INTELLIGENCE MATRIX =================
         val routeCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-            background = createGlassCard("#111A2E", "#1E293B", 22)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = createGlassCard("#111A2E", "#1E293B", 20)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
-                2.3f
-            ).apply { bottomMargin = dp(12) }
+                2.2f
+            ).apply { bottomMargin = dp(10) }
         }
 
         val routeCardHeader = TextView(this).apply {
-            text = "GEOFENCE ROUTE FILTERS (HEADER + FULL ADDRESS)"
-            textSize = 10.5f
+            text = "GEOFENCE ROUTE FILTERS (ZONE PRIORITY OVERRIDE)"
+            textSize = 10f
             setTextColor(Color.parseColor("#94A3B8"))
             typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.08f
-            setPadding(0, 0, 0, dp(8))
+            letterSpacing = 0.06f
+            setPadding(0, 0, 0, dp(6))
         }
         routeCard.addView(routeCardHeader)
 
@@ -400,19 +397,19 @@ class MainActivity : AppCompatActivity() {
 
         val pickupBadge = TextView(this).apply {
             text = "PICKUP"
-            textSize = 9.5f
+            textSize = 9f
             setTextColor(Color.parseColor("#060A12"))
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(10), dp(3), dp(10), dp(3))
+            setPadding(dp(8), dp(2), dp(8), dp(2))
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#38BDF8"))
-                cornerRadius = dp(8).toFloat()
+                cornerRadius = dp(6).toFloat()
             }
         }
 
         val pickupLabel = TextView(this).apply {
             text = "  Origin Zone Match"
-            textSize = 13f
+            textSize = 12f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -428,16 +425,16 @@ class MainActivity : AppCompatActivity() {
         pickupTopRow.addView(pickupSwitch)
 
         val pickupDropdown = TextView(this).apply {
-            textSize = 12.5f
+            textSize = 12f
             setTextColor(Color.parseColor("#E2E8F0"))
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = createGlassCard("#070B14", "#38BDF8", 14)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = createGlassCard("#070B14", "#38BDF8", 12)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(6); bottomMargin = dp(10) }
+            ).apply { topMargin = dp(4); bottomMargin = dp(8) }
         }
 
         // Drop Block
@@ -448,19 +445,19 @@ class MainActivity : AppCompatActivity() {
 
         val dropBadge = TextView(this).apply {
             text = "DROP"
-            textSize = 9.5f
+            textSize = 9f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(12), dp(3), dp(12), dp(3))
+            setPadding(dp(10), dp(2), dp(10), dp(2))
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#F43F5E"))
-                cornerRadius = dp(8).toFloat()
+                cornerRadius = dp(6).toFloat()
             }
         }
 
         val dropLabel = TextView(this).apply {
             text = "  Destination Zone Match"
-            textSize = 13f
+            textSize = 12f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -476,16 +473,16 @@ class MainActivity : AppCompatActivity() {
         dropTopRow.addView(dropSwitch)
 
         val dropDropdown = TextView(this).apply {
-            textSize = 12.5f
+            textSize = 12f
             setTextColor(Color.parseColor("#E2E8F0"))
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = createGlassCard("#070B14", "#F43F5E", 14)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = createGlassCard("#070B14", "#F43F5E", 12)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(6) }
+            ).apply { topMargin = dp(4) }
         }
 
         fun updateZoneButtons() {
@@ -545,26 +542,26 @@ class MainActivity : AppCompatActivity() {
         routeCard.addView(dropDropdown)
         root.addView(routeCard)
 
-        // ================= 4. SWIPE VELOCITY SELECTOR (Weight 1.2) =================
+        // ================= 4. SWIPE VELOCITY SELECTOR =================
         val speedCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), dp(12), dp(18), dp(12))
-            background = createGlassCard("#111A2E", "#1E293B", 20)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            background = createGlassCard("#111A2E", "#1E293B", 18)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
-                1.25f
-            ).apply { bottomMargin = dp(12) }
+                1.15f
+            ).apply { bottomMargin = dp(10) }
         }
 
         val speedHead = TextView(this).apply {
             text = "SWIPE RESPONSE VELOCITY"
-            textSize = 10.5f
+            textSize = 10f
             setTextColor(Color.parseColor("#94A3B8"))
             typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.08f
-            setPadding(0, 0, 0, dp(8))
+            letterSpacing = 0.06f
+            setPadding(0, 0, 0, dp(6))
         }
         speedCard.addView(speedHead)
 
@@ -587,11 +584,11 @@ class MainActivity : AppCompatActivity() {
                         GradientDrawable.Orientation.TL_BR,
                         intArrayOf(Color.parseColor("#0F2942"), Color.parseColor("#064E3B"))
                     ).apply {
-                        cornerRadius = dp(14).toFloat()
+                        cornerRadius = dp(12).toFloat()
                         setStroke(dp(2), Color.parseColor("#2DD4BF"))
                     }
                 } else {
-                    createGlassCard("#070B14", "#1E293B", 14)
+                    createGlassCard("#070B14", "#1E293B", 12)
                 }
             }
         }
@@ -601,18 +598,18 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                    if (key != "HUMAN") rightMargin = dp(8)
+                    if (key != "HUMAN") rightMargin = dp(6)
                 }
                 val t1 = TextView(context).apply {
                     text = title
-                    textSize = 13f
+                    textSize = 12f
                     setTextColor(Color.WHITE)
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
                 }
                 val t2 = TextView(context).apply {
                     text = sub
-                    textSize = 10.5f
+                    textSize = 10f
                     setTextColor(Color.parseColor("#2DD4BF"))
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
@@ -628,11 +625,11 @@ class MainActivity : AppCompatActivity() {
 
         val tileQuick = buildVelocityTile("QUICK", "TURBO", "150 ms")
         val tileNormal = buildVelocityTile("NORMAL", "BALANCED", "320 ms")
-        val tileHuman = buildVelocityTile("HUMAN", "NATURAL", "550 ms")
+        val tileHuman = buildVelocityTile("NATURAL", "NATURAL", "550 ms")
 
         speedViews["QUICK"] = tileQuick
         speedViews["NORMAL"] = tileNormal
-        speedViews["HUMAN"] = tileHuman
+        speedViews["NATURAL"] = tileHuman
 
         speedRow.addView(tileQuick)
         speedRow.addView(tileNormal)
@@ -642,14 +639,14 @@ class MainActivity : AppCompatActivity() {
         speedCard.addView(speedRow)
         root.addView(speedCard)
 
-        // ================= 5. BOTTOM COMMAND DOCK (Weight 1.45) =================
+        // ================= 5. BOTTOM COMMAND DOCK =================
         val bottomDock = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             weightSum = 2f
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
-                1.45f
+                1.35f
             )
         }
 
@@ -660,7 +657,7 @@ class MainActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
                 1f
-            ).apply { bottomMargin = dp(8) }
+            ).apply { bottomMargin = dp(6) }
         }
 
         val saveBtn = createDockButton(
@@ -772,23 +769,23 @@ class MainActivity : AppCompatActivity() {
                 GradientDrawable.Orientation.TL_BR,
                 intArrayOf(Color.parseColor(c1), Color.parseColor(c2))
             ).apply {
-                cornerRadius = dp(18).toFloat()
+                cornerRadius = dp(16).toFloat()
                 setStroke(dp(1), Color.parseColor("#40FFFFFF"))
             }
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                if (isLeft) rightMargin = dp(6) else leftMargin = dp(6)
+                if (isLeft) rightMargin = dp(4) else leftMargin = dp(4)
             }
             val tvMain = TextView(context).apply {
                 text = title
-                textSize = 13f
+                textSize = 12f
                 setTextColor(Color.WHITE)
                 typeface = Typeface.DEFAULT_BOLD
-                letterSpacing = 0.05f
+                letterSpacing = 0.04f
                 gravity = Gravity.CENTER
             }
             val tvSub = TextView(context).apply {
                 text = sub
-                textSize = 10f
+                textSize = 9.5f
                 setTextColor(Color.parseColor("#E2E8F0"))
                 gravity = Gravity.CENTER
             }
@@ -862,13 +859,13 @@ class MainActivity : AppCompatActivity() {
         val isOverlayOk = Settings.canDrawOverlays(this)
 
         if (isAccActive && isOverlayOk) {
-            statusBadge.text = "● ENGINE ONLINE"
+            statusBadge.text = "● ONLINE"
             statusBadge.setTextColor(Color.parseColor("#10B981"))
-            statusBadge.background = createGlassCard("#064E3B", "#10B981", 30)
+            statusBadge.background = createGlassCard("#064E3B", "#10B981", 24)
         } else {
-            statusBadge.text = "● PERMISSION NEEDED"
+            statusBadge.text = "● PERMISSION"
             statusBadge.setTextColor(Color.parseColor("#FBBF24"))
-            statusBadge.background = createGlassCard("#451A03", "#F59E0B", 30)
+            statusBadge.background = createGlassCard("#451A03", "#F59E0B", 24)
         }
     }
 

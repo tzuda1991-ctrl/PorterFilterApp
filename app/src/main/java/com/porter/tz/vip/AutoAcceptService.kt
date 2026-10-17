@@ -54,13 +54,13 @@ class AutoAcceptService : AccessibilityService() {
         } else {
             val root = rootInActiveWindow ?: return
             val pkg = root.packageName?.toString() ?: ""
-            if (!pkg.contains("porter", ignoreCase = true) || pkg == packageName) return
+            if (!pkg.contains("porter", ignoreCase = true) || pkg == packageName) continue
             collectVisibleNodes(root, nodes, metrics.widthPixels, metrics.heightPixels)
         }
 
         if (nodes.isEmpty()) return
 
-        // 1. Active Trip Screen Guard (No Ghost Swipes after order is accepted)
+        // 1. Active Trip Screen Guard
         val isOnActiveTripScreen = nodes.any {
             val t = it.text
             t.contains("Start Trip", ignoreCase = true) ||
@@ -82,7 +82,7 @@ class AutoAcceptService : AccessibilityService() {
 
         val acceptCenterY = acceptNode.bounds.centerY()
 
-        // 3. Strictly Detect Top Order Fare Only (e.g. ₹113, ₹204)
+        // 3. Strictly Detect Top Order Fare Only
         var detectedOrderFare: Int? = null
         var fareBottomY = 0
         var topMostY = Int.MAX_VALUE
@@ -126,16 +126,9 @@ class AutoAcceptService : AccessibilityService() {
             }
         }
 
-        val orderFare = detectedOrderFare ?: return
+        val orderFare = detectedOrderFare ?: 0
 
-        // 4. Minimum Fare Check (if enabled)
-        val useFareFilter = prefs.getBoolean("USE_FARE_FILTER", true)
-        if (useFareFilter) {
-            val minFare = prefs.getInt("MIN_FARE", 200)
-            if (orderFare < minFare) return
-        }
-
-        // 5. Strict Separation of Pickup Block (Header + Full Address) vs Drop Block (Header + Full Address)
+        // 4. Strict Separation of Pickup vs Drop Blocks
         val locationNodes = nodes.filter {
             it.bounds.top >= fareBottomY - 15 &&
             it.bounds.bottom <= acceptNode.bounds.top + 15
@@ -168,30 +161,45 @@ class AutoAcceptService : AccessibilityService() {
             dropFullBlock = lines.drop(half).joinToString(" ")
         }
 
-        // Check Pickup Zone (if enabled)
+        // 5. ZONE PRIORITY OVERRIDE LOGIC:
+        // If Pickup or Drop zone filters are active and match successfully, we OVERRIDE (bypass) the Min Fare check.
         val usePickupFilter = prefs.getBoolean("USE_PICKUP_FILTER", false)
         val pickupQueryStr = prefs.getString("PICKUP_FILTER", "")?.trim() ?: ""
+        var isPickupMatched = false
         if (usePickupFilter && pickupQueryStr.isNotEmpty()) {
             val selectedPickups = pickupQueryStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            val matchedPickup = selectedPickups.any { areaName ->
+            isPickupMatched = selectedPickups.any { areaName ->
                 matchesAreaInAddressBlock(pickupFullBlock, areaName)
             }
-            if (!matchedPickup) return
         }
 
-        // Check Drop Zone (if enabled)
         val useDropFilter = prefs.getBoolean("USE_DROP_FILTER", false)
         val dropQueryStr = prefs.getString("DROP_FILTER", "")?.trim() ?: ""
+        var isDropMatched = false
         if (useDropFilter && dropQueryStr.isNotEmpty()) {
             val selectedDrops = dropQueryStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            val matchedDrop = selectedDrops.any { areaName ->
+            isDropMatched = selectedDrops.any { areaName ->
                 matchesAreaInAddressBlock(dropFullBlock, areaName)
             }
-            if (!matchedDrop) return
+        }
+
+        // Enforcement Check
+        if (usePickupFilter || useDropFilter) {
+            // If zone filters are enabled, AT LEAST ONE active zone must match
+            val anyZoneActiveAndMatched = (usePickupFilter && isPickupMatched) || (useDropFilter && isDropMatched)
+            // Also ensure if both are checked, respective ones match if desired, but general rule: if zone matches, fare check is bypassed!
+            if (!anyZoneActiveAndMatched) return
+        } else {
+            // If no zone filters are active, enforce Minimum Fare Filter strictly
+            val useFareFilter = prefs.getBoolean("USE_FARE_FILTER", true)
+            if (useFareFilter) {
+                val minFare = prefs.getInt("MIN_FARE", 200)
+                if (orderFare < minFare) return
+            }
         }
 
         // 6. Execute Swipe at Selected Velocity
-        val speedMode = prefs.getString("SWIPE_SPEED", "NORMAL") ?: "NORMAL"
+        val speedMode = prefs.getString("SWIPE_SPEED", "QUICK") ?: "QUICK"
         lastSwipeTime = currentTime
 
         mainHandler.post {
@@ -267,9 +275,9 @@ class AutoAcceptService : AccessibilityService() {
         val endX = metrics.widthPixels * 0.74f
 
         val (delayMs, durationMs, curveOffset) = when (speedMode) {
-            "QUICK" -> Triple(20L, 150L, 0f)
-            "HUMAN" -> Triple(140L, 550L, 6f)
-            else -> Triple(60L, 320L, 2f)
+            "QUICK" -> Triple(15L, 120L, 0f)
+            "NATURAL" -> Triple(100L, 450L, 5f)
+            else -> Triple(40L, 250L, 2f)
         }
 
         val path = Path().apply {
