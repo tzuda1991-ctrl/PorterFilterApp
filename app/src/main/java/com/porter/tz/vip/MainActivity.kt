@@ -12,13 +12,19 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
+import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var statusBadge: TextView
+    private lateinit var masterStatusText: TextView
+    private lateinit var masterToggleSwitch: Switch
+    private lateinit var minFareInput: EditText
+
     private var selectedSpeed = "NORMAL"
     private var selectedCity = "Bengaluru"
 
@@ -62,12 +68,21 @@ class MainActivity : AppCompatActivity() {
         )
     )
 
+    private fun dp(value: Int): Int {
+        return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            value.toFloat(),
+            resources.displayMetrics
+        ).toInt()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.parseColor("#090D16")
+        window.statusBarColor = Color.parseColor("#060A12")
+        window.navigationBarColor = Color.parseColor("#060A12")
 
         val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
-        selectedSpeed = prefs.getString("SWIPE_SPEED", "NORMAL") ?: "NORMAL"
+        selectedSpeed = prefs.getString("SWIPE_SPEED", "QUICK") ?: "QUICK"
         selectedCity = prefs.getString("SELECTED_CITY", "Bengaluru") ?: "Bengaluru"
 
         prefs.getString("PICKUP_FILTER", "")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.let {
@@ -77,263 +92,433 @@ class MainActivity : AppCompatActivity() {
             selectedDropSet.addAll(it)
         }
 
+        // FULL-SCREEN PROPORTIONAL ROOT (Fills 100% height, zero dead space, zero scroll)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#090D16"))
-            setPadding(28, 20, 28, 20)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(
+                    Color.parseColor("#060A12"),
+                    Color.parseColor("#0B1325"),
+                    Color.parseColor("#070B14")
+                )
+            )
+            setPadding(dp(16), dp(14), dp(16), dp(16))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.MATCH_PARENT
             )
         }
 
-        // ================= 1. COMPACT TOP BAR =================
-        val topBar = LinearLayout(this).apply {
+        // ================= 1. LUXURY COCKPIT HEADER (Weight 1.2) =================
+        val headerCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.parseColor("#162038"), Color.parseColor("#0F172A"))
+            ).apply {
+                cornerRadius = dp(22).toFloat()
+                setStroke(dp(1), Color.parseColor("#2DD4BF"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1.25f
+            ).apply { bottomMargin = dp(12) }
+        }
+
+        val topRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(24, 16, 24, 16)
-            background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#111827"), Color.parseColor("#1E293B"))
-            ).apply {
-                cornerRadius = 26f
-                setStroke(2, Color.parseColor("#334155"))
-            }
         }
 
         val logoImg = ImageView(this).apply {
             setImageResource(R.drawable.ic_vip_logo)
-            layoutParams = LinearLayout.LayoutParams(60, 60).apply { rightMargin = 16 }
+            layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { rightMargin = dp(14) }
         }
 
-        val titleCol = LinearLayout(this).apply {
+        val brandCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val appTitle = TextView(this).apply {
+        val brandName = TextView(this).apply {
             text = "ZU Smart"
-            textSize = 18f
+            textSize = 21f
             setTextColor(Color.WHITE)
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
+            letterSpacing = 0.04f
         }
 
-        val appSub = TextView(this).apply {
-            text = "INTELLIGENT DISPATCH PRO"
-            textSize = 9f
-            setTextColor(Color.parseColor("#00F5D4"))
+        val brandTag = TextView(this).apply {
+            text = "AUTONOMOUS DISPATCH SYSTEM"
+            textSize = 9.5f
+            setTextColor(Color.parseColor("#2DD4BF"))
             typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.08f
+            letterSpacing = 0.12f
         }
 
-        titleCol.addView(appTitle)
-        titleCol.addView(appSub)
+        brandCol.addView(brandName)
+        brandCol.addView(brandTag)
 
         statusBadge = TextView(this).apply {
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(20, 10, 20, 10)
+            setPadding(dp(14), dp(6), dp(14), dp(6))
         }
 
-        topBar.addView(logoImg)
-        topBar.addView(titleCol)
-        topBar.addView(statusBadge)
-        root.addView(topBar)
+        topRow.addView(logoImg)
+        topRow.addView(brandCol)
+        topRow.addView(statusBadge)
 
-        // ================= 2. FARE & CITY ROW (SIDE-BY-SIDE) =================
-        val fareCityCard = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(22, 16, 22, 16)
-            background = createCardBg("#111827", "#1F2937")
+        val headerDivider = View(this).apply {
+            setBackgroundColor(Color.parseColor("#1E293B"))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 14 }
+                dp(1)
+            ).apply { topMargin = dp(10); bottomMargin = dp(8) }
         }
 
-        val fareBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = 12
+        val masterRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        masterStatusText = TextView(this).apply {
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        masterToggleSwitch = Switch(this).apply {
+            isChecked = prefs.getBoolean("BOT_ACTIVE", true)
+            thumbTintList = ColorStateList.valueOf(Color.parseColor("#10B981"))
+            trackTintList = ColorStateList.valueOf(Color.parseColor("#334155"))
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("BOT_ACTIVE", isChecked).apply()
+                refreshMasterEngineBar(isChecked)
+                if (Settings.canDrawOverlays(this@MainActivity)) {
+                    startFloatingWidget()
+                }
             }
         }
 
-        val fareToggleRow = LinearLayout(this).apply {
+        refreshMasterEngineBar(masterToggleSwitch.isChecked)
+
+        masterRow.addView(masterStatusText)
+        masterRow.addView(masterToggleSwitch)
+
+        headerCard.addView(topRow)
+        headerCard.addView(headerDivider)
+        headerCard.addView(masterRow)
+        root.addView(headerCard)
+
+        // ================= 2. FARE STEPPER & CITY HUB (Weight 1.25) =================
+        val midRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            weightSum = 2f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1.25f
+            ).apply { bottomMargin = dp(12) }
         }
 
-        val fareLabel = TextView(this).apply {
-            text = "Min Fare (₹)"
-            textSize = 12f
-            setTextColor(Color.parseColor("#E2E8F0"))
+        // Left Card: Interactive Fare Control
+        val fareCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = createGlassCard("#111A2E", "#1E293B", 20)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1.1f).apply {
+                rightMargin = dp(6)
+            }
+        }
+
+        val fareHead = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+
+        val fareTitle = TextView(this).apply {
+            text = "MIN FARE (₹)"
+            textSize = 11f
+            setTextColor(Color.parseColor("#94A3B8"))
             typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.06f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
         val fareSwitch = Switch(this).apply {
             isChecked = prefs.getBoolean("USE_FARE_FILTER", true)
-            thumbTintList = ColorStateList.valueOf(Color.parseColor("#00F5D4"))
+            thumbTintList = ColorStateList.valueOf(Color.parseColor("#2DD4BF"))
         }
 
-        fareToggleRow.addView(fareLabel)
-        fareToggleRow.addView(fareSwitch)
+        fareHead.addView(fareTitle)
+        fareHead.addView(fareSwitch)
 
-        val minFareInput = EditText(this).apply {
-            hint = "200"
-            setHintTextColor(Color.parseColor("#475569"))
-            setTextColor(Color.parseColor("#00F5D4"))
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText(prefs.getInt("MIN_FARE", 200).toString())
-            setPadding(22, 12, 22, 12)
-            background = createCardBg("#090D16", "#00F5D4", 16f)
-        }
-
-        fun updateFareInputState(active: Boolean) {
-            minFareInput.isEnabled = active
-            minFareInput.alpha = if (active) 1f else 0.35f
-        }
-        updateFareInputState(fareSwitch.isChecked)
-        fareSwitch.setOnCheckedChangeListener { _, isChecked -> updateFareInputState(isChecked) }
-
-        fareBox.addView(fareToggleRow)
-        fareBox.addView(minFareInput)
-
-        val cityBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                leftMargin = 12
-            }
-        }
-
-        val cityLabel = TextView(this).apply {
-            text = "Operating City"
-            textSize = 12f
-            setTextColor(Color.parseColor("#E2E8F0"))
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 4, 0, 8)
-        }
-
-        val citySelectBtn = TextView(this).apply {
-            text = "📍 $selectedCity ▼"
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(22, 18, 22, 18)
-            background = createCardBg("#090D16", "#38BDF8", 16f)
-        }
-
-        cityBox.addView(cityLabel)
-        cityBox.addView(citySelectBtn)
-
-        fareCityCard.addView(fareBox)
-        fareCityCard.addView(cityBox)
-        root.addView(fareCityCard)
-
-        // ================= 3. PICKUP & DROP ZONE DROPDOWN CARD =================
-        val zoneCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(22, 16, 22, 16)
-            background = createCardBg("#111827", "#1F2937")
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 14 }
-        }
-
-        val pickupHeader = LinearLayout(this).apply {
+        val stepperRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val pickupTitle = TextView(this).apply {
-            text = "🟢 Pickup Zone Filter (Header + Full Address)"
-            textSize = 12f
+
+        val minusBtn = TextView(this).apply {
+            text = "−"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = createGlassCard("#1E293B", "#334155", 12)
+            layoutParams = LinearLayout.LayoutParams(dp(38), dp(42))
+            setOnClickListener {
+                val cur = minFareInput.text.toString().toIntOrNull() ?: 200
+                val next = (cur - 20).coerceAtLeast(50)
+                minFareInput.setText(next.toString())
+            }
+        }
+
+        minFareInput = EditText(this).apply {
+            setText(prefs.getInt("MIN_FARE", 200).toString())
+            setTextColor(Color.parseColor("#2DD4BF"))
+            textSize = 18f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setPadding(dp(4), dp(6), dp(4), dp(6))
+            background = createGlassCard("#070B14", "#2DD4BF", 12)
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                leftMargin = dp(6)
+                rightMargin = dp(6)
+            }
+        }
+
+        val plusBtn = TextView(this).apply {
+            text = "+"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = createGlassCard("#1E293B", "#334155", 12)
+            layoutParams = LinearLayout.LayoutParams(dp(38), dp(42))
+            setOnClickListener {
+                val cur = minFareInput.text.toString().toIntOrNull() ?: 200
+                val next = cur + 20
+                minFareInput.setText(next.toString())
+            }
+        }
+
+        stepperRow.addView(minusBtn)
+        stepperRow.addView(minFareInput)
+        stepperRow.addView(plusBtn)
+
+        fun syncFareUI(enabled: Boolean) {
+            minFareInput.isEnabled = enabled
+            minusBtn.isEnabled = enabled
+            plusBtn.isEnabled = enabled
+            stepperRow.alpha = if (enabled) 1f else 0.35f
+        }
+        syncFareUI(fareSwitch.isChecked)
+        fareSwitch.setOnCheckedChangeListener { _, isChecked -> syncFareUI(isChecked) }
+
+        fareCard.addView(fareHead)
+        fareCard.addView(stepperRow)
+
+        // Right Card: City Hub Selector
+        val cityCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = createGlassCard("#111A2E", "#1E293B", 20)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.9f).apply {
+                leftMargin = dp(6)
+            }
+        }
+
+        val cityHead = TextView(this).apply {
+            text = "OPERATING REGION"
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#94A3B8"))
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.06f
+            setPadding(0, 0, 0, dp(10))
+        }
+
+        val citySelectBtn = TextView(this).apply {
+            text = "$selectedCity  ▾"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = createGlassCard("#070B14", "#38BDF8", 12)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(42)
+            )
+        }
+
+        cityCard.addView(cityHead)
+        cityCard.addView(citySelectBtn)
+
+        midRow.addView(fareCard)
+        midRow.addView(cityCard)
+        root.addView(midRow)
+
+        // ================= 3. ROUTE INTELLIGENCE MATRIX (Weight 2.3) =================
+        val routeCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+            background = createGlassCard("#111A2E", "#1E293B", 22)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                2.3f
+            ).apply { bottomMargin = dp(12) }
+        }
+
+        val routeCardHeader = TextView(this).apply {
+            text = "GEOFENCE ROUTE FILTERS (HEADER + FULL ADDRESS)"
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#94A3B8"))
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.08f
+            setPadding(0, 0, 0, dp(8))
+        }
+        routeCard.addView(routeCardHeader)
+
+        // Pickup Block
+        val pickupTopRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val pickupBadge = TextView(this).apply {
+            text = "PICKUP"
+            textSize = 9.5f
+            setTextColor(Color.parseColor("#060A12"))
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(10), dp(3), dp(10), dp(3))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#38BDF8"))
+                cornerRadius = dp(8).toFloat()
+            }
+        }
+
+        val pickupLabel = TextView(this).apply {
+            text = "  Origin Zone Match"
+            textSize = 13f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
+
         val pickupSwitch = Switch(this).apply {
             isChecked = prefs.getBoolean("USE_PICKUP_FILTER", false)
             thumbTintList = ColorStateList.valueOf(Color.parseColor("#38BDF8"))
         }
-        pickupHeader.addView(pickupTitle)
-        pickupHeader.addView(pickupSwitch)
 
-        val pickupSelectorBtn = TextView(this).apply {
-            textSize = 12f
+        pickupTopRow.addView(pickupBadge)
+        pickupTopRow.addView(pickupLabel)
+        pickupTopRow.addView(pickupSwitch)
+
+        val pickupDropdown = TextView(this).apply {
+            textSize = 12.5f
             setTextColor(Color.parseColor("#E2E8F0"))
-            setPadding(22, 16, 22, 16)
-            background = createCardBg("#090D16", "#38BDF8", 16f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = createGlassCard("#070B14", "#38BDF8", 14)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 6; bottomMargin = 12 }
+            ).apply { topMargin = dp(6); bottomMargin = dp(10) }
         }
 
-        val dropHeader = LinearLayout(this).apply {
+        // Drop Block
+        val dropTopRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val dropTitle = TextView(this).apply {
-            text = "🔴 Drop Zone Filter (Header + Full Address)"
-            textSize = 12f
+
+        val dropBadge = TextView(this).apply {
+            text = "DROP"
+            textSize = 9.5f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(12), dp(3), dp(12), dp(3))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F43F5E"))
+                cornerRadius = dp(8).toFloat()
+            }
+        }
+
+        val dropLabel = TextView(this).apply {
+            text = "  Destination Zone Match"
+            textSize = 13f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
+
         val dropSwitch = Switch(this).apply {
             isChecked = prefs.getBoolean("USE_DROP_FILTER", false)
             thumbTintList = ColorStateList.valueOf(Color.parseColor("#F43F5E"))
         }
-        dropHeader.addView(dropTitle)
-        dropHeader.addView(dropSwitch)
 
-        val dropSelectorBtn = TextView(this).apply {
-            textSize = 12f
+        dropTopRow.addView(dropBadge)
+        dropTopRow.addView(dropLabel)
+        dropTopRow.addView(dropSwitch)
+
+        val dropDropdown = TextView(this).apply {
+            textSize = 12.5f
             setTextColor(Color.parseColor("#E2E8F0"))
-            setPadding(22, 16, 22, 16)
-            background = createCardBg("#090D16", "#F43F5E", 16f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = createGlassCard("#070B14", "#F43F5E", 14)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 6 }
+            ).apply { topMargin = dp(6) }
         }
 
-        fun refreshZoneTexts() {
-            pickupSelectorBtn.text = if (selectedPickupSet.isEmpty()) {
-                "Tap to select $selectedCity Pickup Areas ▼"
+        fun updateZoneButtons() {
+            pickupDropdown.text = if (selectedPickupSet.isEmpty()) {
+                "Select $selectedCity Pickup Zones   ▾"
             } else {
-                "☑️ (${selectedPickupSet.size}) ${selectedPickupSet.joinToString(", ")} ▼"
+                "[ ${selectedPickupSet.size} Zones ]  ${selectedPickupSet.joinToString(", ")}   ▾"
             }
-            pickupSelectorBtn.alpha = if (pickupSwitch.isChecked) 1f else 0.4f
+            pickupDropdown.alpha = if (pickupSwitch.isChecked) 1f else 0.38f
 
-            dropSelectorBtn.text = if (selectedDropSet.isEmpty()) {
-                "Tap to select $selectedCity Drop Areas ▼"
+            dropDropdown.text = if (selectedDropSet.isEmpty()) {
+                "Select $selectedCity Drop Zones   ▾"
             } else {
-                "☑️ (${selectedDropSet.size}) ${selectedDropSet.joinToString(", ")} ▼"
+                "[ ${selectedDropSet.size} Zones ]  ${selectedDropSet.joinToString(", ")}   ▾"
             }
-            dropSelectorBtn.alpha = if (dropSwitch.isChecked) 1f else 0.4f
+            dropDropdown.alpha = if (dropSwitch.isChecked) 1f else 0.38f
         }
 
-        refreshZoneTexts()
+        updateZoneButtons()
+        pickupSwitch.setOnCheckedChangeListener { _, _ -> updateZoneButtons() }
+        dropSwitch.setOnCheckedChangeListener { _, _ -> updateZoneButtons() }
 
-        pickupSwitch.setOnCheckedChangeListener { _, _ -> refreshZoneTexts() }
-        dropSwitch.setOnCheckedChangeListener { _, _ -> refreshZoneTexts() }
-
-        pickupSelectorBtn.setOnClickListener {
+        pickupDropdown.setOnClickListener {
             pickupSwitch.isChecked = true
-            showAreaMultiSelectDialog("Select Pickup Areas ($selectedCity)", selectedPickupSet) {
-                refreshZoneTexts()
+            showAreaMultiSelectDialog("Select Pickup Zones ($selectedCity)", selectedPickupSet) {
+                updateZoneButtons()
             }
         }
 
-        dropSelectorBtn.setOnClickListener {
+        dropDropdown.setOnClickListener {
             dropSwitch.isChecked = true
-            showAreaMultiSelectDialog("Select Drop Areas ($selectedCity)", selectedDropSet) {
-                refreshZoneTexts()
+            showAreaMultiSelectDialog("Select Drop Zones ($selectedCity)", selectedDropSet) {
+                updateZoneButtons()
             }
         }
 
@@ -342,108 +527,149 @@ class MainActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle("Select Operating City")
                 .setItems(cities) { _, which ->
-                    val newCity = cities[which]
-                    if (newCity != selectedCity) {
-                        selectedCity = newCity
+                    val chosen = cities[which]
+                    if (chosen != selectedCity) {
+                        selectedCity = chosen
                         selectedPickupSet.clear()
                         selectedDropSet.clear()
-                        citySelectBtn.text = "📍 $selectedCity ▼"
-                        refreshZoneTexts()
+                        citySelectBtn.text = "$selectedCity  ▾"
+                        updateZoneButtons()
                     }
                 }
                 .show()
         }
 
-        zoneCard.addView(pickupHeader)
-        zoneCard.addView(pickupSelectorBtn)
-        zoneCard.addView(dropHeader)
-        zoneCard.addView(dropSelectorBtn)
-        root.addView(zoneCard)
+        routeCard.addView(pickupTopRow)
+        routeCard.addView(pickupDropdown)
+        routeCard.addView(dropTopRow)
+        routeCard.addView(dropDropdown)
+        root.addView(routeCard)
 
-        // ================= 4. COMPACT SWIPE SPEED BAR =================
+        // ================= 4. SWIPE VELOCITY SELECTOR (Weight 1.2) =================
         val speedCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(22, 16, 22, 16)
-            background = createCardBg("#111827", "#1F2937")
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+            background = createGlassCard("#111A2E", "#1E293B", 20)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 14 }
+                0,
+                1.25f
+            ).apply { bottomMargin = dp(12) }
         }
 
-        val speedTitle = TextView(this).apply {
-            text = "SWIPE VELOCITY ENGINE"
-            textSize = 11f
+        val speedHead = TextView(this).apply {
+            text = "SWIPE RESPONSE VELOCITY"
+            textSize = 10.5f
             setTextColor(Color.parseColor("#94A3B8"))
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = 0.08f
-            setPadding(0, 0, 0, 10)
+            setPadding(0, 0, 0, dp(8))
         }
-        speedCard.addView(speedTitle)
+        speedCard.addView(speedHead)
 
         val speedRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             weightSum = 3f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
         }
 
-        val speedBoxes = mutableMapOf<String, TextView>()
+        val speedViews = mutableMapOf<String, LinearLayout>()
 
-        fun updateSpeedSelection() {
-            for ((key, view) in speedBoxes) {
-                val active = (key == selectedSpeed)
-                view.background = createCardBg(
-                    if (active) "#1E293B" else "#090D16",
-                    if (active) "#00F5D4" else "#1F2937",
-                    18f
-                )
-                view.setTextColor(if (active) Color.parseColor("#00F5D4") else Color.WHITE)
+        fun refreshVelocityCards() {
+            for ((k, box) in speedViews) {
+                val active = (k == selectedSpeed)
+                box.background = if (active) {
+                    GradientDrawable(
+                        GradientDrawable.Orientation.TL_BR,
+                        intArrayOf(Color.parseColor("#0F2942"), Color.parseColor("#064E3B"))
+                    ).apply {
+                        cornerRadius = dp(14).toFloat()
+                        setStroke(dp(2), Color.parseColor("#2DD4BF"))
+                    }
+                } else {
+                    createGlassCard("#070B14", "#1E293B", 14)
+                }
             }
         }
 
-        fun makeSpeedPill(key: String, label: String): TextView {
-            return TextView(this).apply {
-                text = label
-                textSize = 11f
-                typeface = Typeface.DEFAULT_BOLD
+        fun buildVelocityTile(key: String, title: String, sub: String): LinearLayout {
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                setPadding(10, 18, 10, 18)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    if (key != "HUMAN") rightMargin = 10
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                    if (key != "HUMAN") rightMargin = dp(8)
                 }
+                val t1 = TextView(context).apply {
+                    text = title
+                    textSize = 13f
+                    setTextColor(Color.WHITE)
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                }
+                val t2 = TextView(context).apply {
+                    text = sub
+                    textSize = 10.5f
+                    setTextColor(Color.parseColor("#2DD4BF"))
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                }
+                addView(t1)
+                addView(t2)
                 setOnClickListener {
                     selectedSpeed = key
-                    updateSpeedSelection()
+                    refreshVelocityCards()
                 }
             }
         }
 
-        val pillQuick = makeSpeedPill("QUICK", "⚡ Quick\n150ms")
-        val pillNormal = makeSpeedPill("NORMAL", "🚀 Normal\n320ms")
-        val pillHuman = makeSpeedPill("HUMAN", "🧑 Human\n550ms")
+        val tileQuick = buildVelocityTile("QUICK", "TURBO", "150 ms")
+        val tileNormal = buildVelocityTile("NORMAL", "BALANCED", "320 ms")
+        val tileHuman = buildVelocityTile("HUMAN", "NATURAL", "550 ms")
 
-        speedBoxes["QUICK"] = pillQuick
-        speedBoxes["NORMAL"] = pillNormal
-        speedBoxes["HUMAN"] = pillHuman
+        speedViews["QUICK"] = tileQuick
+        speedViews["NORMAL"] = tileNormal
+        speedViews["HUMAN"] = tileHuman
 
-        speedRow.addView(pillQuick)
-        speedRow.addView(pillNormal)
-        speedRow.addView(pillHuman)
-        updateSpeedSelection()
+        speedRow.addView(tileQuick)
+        speedRow.addView(tileNormal)
+        speedRow.addView(tileHuman)
+        refreshVelocityCards()
 
         speedCard.addView(speedRow)
         root.addView(speedCard)
 
-        // ================= 5. 2x2 COMPACT ACTION BUTTON GRID =================
-        val gridRow1 = LinearLayout(this).apply {
+        // ================= 5. BOTTOM COMMAND DOCK (Weight 1.45) =================
+        val bottomDock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            weightSum = 2f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1.45f
+            )
+        }
+
+        val dockRow1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             weightSum = 2f
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 16 }
+                0,
+                1f
+            ).apply { bottomMargin = dp(8) }
         }
 
-        val saveBtn = createCompactActionBtn("💾 SAVE SETTINGS", "#2563EB", true) {
+        val saveBtn = createDockButton(
+            title = "SAVE PROFILE",
+            sub = "Apply Active Filters",
+            c1 = "#2563EB",
+            c2 = "#06B6D4",
+            isLeft = true
+        ) {
             val fare = minFareInput.text.toString().toIntOrNull() ?: 200
             prefs.edit()
                 .putBoolean("USE_FARE_FILTER", fareSwitch.isChecked)
@@ -459,46 +685,117 @@ class MainActivity : AppCompatActivity() {
             if (Settings.canDrawOverlays(this)) {
                 startFloatingWidget()
             }
-            Toast.makeText(this, "✅ ZU Smart Settings Saved!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "ZU Smart Profile Saved ($selectedSpeed)", Toast.LENGTH_SHORT).show()
         }
 
-        val floatBtn = createCompactActionBtn("🎯 FLOATING BAR", "#059669", false) {
+        val floatBtn = createDockButton(
+            title = "FLOATING HUD",
+            sub = "Launch Overlay Bar",
+            c1 = "#059669",
+            c2 = "#10B981",
+            isLeft = false
+        ) {
             if (!Settings.canDrawOverlays(this)) {
                 Toast.makeText(this, "Grant Overlay Permission for ZU Smart", Toast.LENGTH_LONG).show()
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             } else {
                 startFloatingWidget()
-                Toast.makeText(this, "⚡ Floating Bar Active", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "ZU Smart HUD Overlay Active", Toast.LENGTH_SHORT).show()
             }
         }
 
-        gridRow1.addView(saveBtn)
-        gridRow1.addView(floatBtn)
+        dockRow1.addView(saveBtn)
+        dockRow1.addView(floatBtn)
 
-        val gridRow2 = LinearLayout(this).apply {
+        val dockRow2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             weightSum = 2f
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 12 }
+                0,
+                1f
+            )
         }
 
-        val porterBtn = createCompactActionBtn("🚀 OPEN PORTER", "#7C3AED", true) {
+        val porterBtn = createDockButton(
+            title = "LAUNCH PORTER",
+            sub = "Open Partner App",
+            c1 = "#6D28D9",
+            c2 = "#9333EA",
+            isLeft = true
+        ) {
             launchPorterPartnerApp(this)
         }
 
-        val accBtn = createCompactActionBtn("⚙️ ACCESSIBILITY", "#D97706", false) {
+        val accBtn = createDockButton(
+            title = "ACCESSIBILITY",
+            sub = "System Engine Setup",
+            c1 = "#B45309",
+            c2 = "#D97706",
+            isLeft = false
+        ) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
-        gridRow2.addView(porterBtn)
-        gridRow2.addView(accBtn)
+        dockRow2.addView(porterBtn)
+        dockRow2.addView(accBtn)
 
-        root.addView(gridRow1)
-        root.addView(gridRow2)
+        bottomDock.addView(dockRow1)
+        bottomDock.addView(dockRow2)
+        root.addView(bottomDock)
 
         setContentView(root)
+    }
+
+    private fun refreshMasterEngineBar(isActive: Boolean) {
+        if (isActive) {
+            masterStatusText.text = "●  AUTO-SWIPE DISPATCHER: ARMED"
+            masterStatusText.setTextColor(Color.parseColor("#2DD4BF"))
+        } else {
+            masterStatusText.text = "○  AUTO-SWIPE DISPATCHER: STANDBY"
+            masterStatusText.setTextColor(Color.parseColor("#F87171"))
+        }
+    }
+
+    private fun createDockButton(
+        title: String,
+        sub: String,
+        c1: String,
+        c2: String,
+        isLeft: Boolean,
+        onClick: () -> Unit
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.parseColor(c1), Color.parseColor(c2))
+            ).apply {
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), Color.parseColor("#40FFFFFF"))
+            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                if (isLeft) rightMargin = dp(6) else leftMargin = dp(6)
+            }
+            val tvMain = TextView(context).apply {
+                text = title
+                textSize = 13f
+                setTextColor(Color.WHITE)
+                typeface = Typeface.DEFAULT_BOLD
+                letterSpacing = 0.05f
+                gravity = Gravity.CENTER
+            }
+            val tvSub = TextView(context).apply {
+                text = sub
+                textSize = 10f
+                setTextColor(Color.parseColor("#E2E8F0"))
+                gravity = Gravity.CENTER
+            }
+            addView(tvMain)
+            addView(tvSub)
+            setOnClickListener { onClick() }
+        }
     }
 
     private fun showAreaMultiSelectDialog(
@@ -521,13 +818,13 @@ class MainActivity : AppCompatActivity() {
                     targetSet.remove(combinedList[which])
                 }
             }
-            .setPositiveButton("Done") { _, _ -> onUpdated() }
-            .setNeutralButton("+ Add Custom") { _, _ ->
+            .setPositiveButton("Apply") { _, _ -> onUpdated() }
+            .setNeutralButton("+ Custom Area") { _, _ ->
                 val input = EditText(this).apply {
-                    hint = "Enter Area Name"
+                    hint = "Enter Area or Pincode"
                 }
                 AlertDialog.Builder(this)
-                    .setTitle("Add Custom Area")
+                    .setTitle("Add Custom Zone")
                     .setView(input)
                     .setPositiveButton("Add") { _, _ ->
                         val custom = input.text.toString().trim()
@@ -547,6 +844,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
+        val active = prefs.getBoolean("BOT_ACTIVE", true)
+        if (::masterToggleSwitch.isInitialized) {
+            masterToggleSwitch.isChecked = active
+            refreshMasterEngineBar(active)
+        }
         updateServiceBadge()
     }
 
@@ -559,44 +862,21 @@ class MainActivity : AppCompatActivity() {
         val isOverlayOk = Settings.canDrawOverlays(this)
 
         if (isAccActive && isOverlayOk) {
-            statusBadge.text = "● READY"
+            statusBadge.text = "● ENGINE ONLINE"
             statusBadge.setTextColor(Color.parseColor("#10B981"))
-            statusBadge.background = createCardBg("#064E3B", "#10B981", 40f)
+            statusBadge.background = createGlassCard("#064E3B", "#10B981", 30)
         } else {
-            statusBadge.text = "● SETUP NEEDED"
+            statusBadge.text = "● PERMISSION NEEDED"
             statusBadge.setTextColor(Color.parseColor("#FBBF24"))
-            statusBadge.background = createCardBg("#451A03", "#F59E0B", 40f)
+            statusBadge.background = createGlassCard("#451A03", "#F59E0B", 30)
         }
     }
 
-    private fun createCardBg(fillHex: String, strokeHex: String, radius: Float = 24f): GradientDrawable {
+    private fun createGlassCard(fillHex: String, strokeHex: String, radiusDp: Int): GradientDrawable {
         return GradientDrawable().apply {
             setColor(Color.parseColor(fillHex))
-            cornerRadius = radius
-            setStroke(2, Color.parseColor(strokeHex))
-        }
-    }
-
-    private fun createCompactActionBtn(
-        label: String,
-        colorHex: String,
-        isLeft: Boolean,
-        onClick: () -> Unit
-    ): Button {
-        return Button(this).apply {
-            text = label
-            setTextColor(Color.WHITE)
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor(colorHex))
-                cornerRadius = 20f
-            }
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                if (isLeft) rightMargin = 8 else leftMargin = 8
-            }
-            setPadding(10, 22, 10, 22)
-            setOnClickListener { onClick() }
+            cornerRadius = dp(radiusDp).toFloat()
+            setStroke(dp(1), Color.parseColor(strokeHex))
         }
     }
 
