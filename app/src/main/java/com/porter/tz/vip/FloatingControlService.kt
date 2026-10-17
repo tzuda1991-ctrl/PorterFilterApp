@@ -42,7 +42,7 @@ class FloatingControlService : Service() {
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#F2090D16"))
                 cornerRadius = 90f
-                setStroke(3, Color.parseColor("#38BDF8"))
+                setStroke(3, Color.parseColor("#2DD4BF"))
             }
         }
 
@@ -109,7 +109,7 @@ class FloatingControlService : Service() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { leftMargin = 8 }
             setOnClickListener {
-                Toast.makeText(this@FloatingControlService, "ZU Smart Overlay Closed", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@FloatingControlService, "ZU Smart HUD Closed", Toast.LENGTH_SHORT).show()
                 stopSelf()
             }
         }
@@ -166,7 +166,7 @@ class FloatingControlService : Service() {
                         val current = prefs.getBoolean("BOT_ACTIVE", true)
                         prefs.edit().putBoolean("BOT_ACTIVE", !current).apply()
                         updateVisualState()
-                        val msg = if (!current) "ZU Smart: ACTIVE" else "ZU Smart: PAUSED"
+                        val msg = if (!current) "ZU Smart: ARMED" else "ZU Smart: STANDBY"
                         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                     }
                     true
@@ -179,25 +179,30 @@ class FloatingControlService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (::statusToggleBtn.isInitialized) {
-            updateVisualState()
-        }
+        if (::statusToggleBtn.isInitialized) updateVisualState()
         return START_STICKY
     }
 
     private fun updateVisualState() {
         val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
         val isEnabled = prefs.getBoolean("BOT_ACTIVE", true)
+        val usePickup = prefs.getBoolean("USE_PICKUP_FILTER", false)
+        val useDrop = prefs.getBoolean("USE_DROP_FILTER", false)
         val useFare = prefs.getBoolean("USE_FARE_FILTER", true)
         val minFare = prefs.getInt("MIN_FARE", 200)
-        val label = if (useFare) "₹$minFare+" else "ALL"
+
+        val modeTag = when {
+            usePickup || useDrop -> "ZONE"
+            useFare -> "₹$minFare+"
+            else -> "ALL"
+        }
 
         if (isEnabled) {
-            statusToggleBtn.text = "⚡ ZU ON ($label)"
+            statusToggleBtn.text = "⚡ ZU ON ($modeTag)"
             statusToggleBtn.background = GradientDrawable().apply {
                 setColor(Color.parseColor("#059669"))
                 cornerRadius = 70f
-                setStroke(2, Color.parseColor("#00F5D4"))
+                setStroke(2, Color.parseColor("#2DD4BF"))
             }
         } else {
             statusToggleBtn.text = "💤 ZU OFF"
@@ -222,7 +227,7 @@ class FloatingControlService : Service() {
 
             val notification = Notification.Builder(this, channelId)
                 .setContentTitle("ZU Smart Active")
-                .setContentText("Floating Controller is running")
+                .setContentText("Autonomous Dispatch HUD Running")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build()
 
@@ -233,9 +238,7 @@ class FloatingControlService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         if (::floatingBar.isInitialized) {
-            try {
-                windowManager.removeView(floatingBar)
-            } catch (_: Exception) {}
+            try { windowManager.removeView(floatingBar) } catch (_: Exception) {}
         }
     }
 

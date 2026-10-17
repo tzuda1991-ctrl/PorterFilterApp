@@ -46,43 +46,53 @@ class AutoAcceptService : AccessibilityService() {
         val windowList = windows
         if (windowList != null && windowList.isNotEmpty()) {
             for (win in windowList) {
-                val root = win.root ?: continue
-                val pkg = root.packageName?.toString() ?: ""
-                if (!pkg.contains("porter", ignoreCase = true) || pkg == packageName) continue
-                collectVisibleNodes(root, nodes, metrics.widthPixels, metrics.heightPixels)
+                val root = win.root
+                if (root != null) {
+                    val pkg = root.packageName?.toString() ?: ""
+                    if (pkg.contains("porter", ignoreCase = true) && pkg != packageName) {
+                        collectVisibleNodes(root, nodes, metrics.widthPixels, metrics.heightPixels)
+                    }
+                }
             }
         } else {
             val root = rootInActiveWindow ?: return
             val pkg = root.packageName?.toString() ?: ""
-            if (!pkg.contains("porter", ignoreCase = true) || pkg == packageName) continue
-            collectVisibleNodes(root, nodes, metrics.widthPixels, metrics.heightPixels)
+            if (pkg.contains("porter", ignoreCase = true) && pkg != packageName) {
+                collectVisibleNodes(root, nodes, metrics.widthPixels, metrics.heightPixels)
+            }
         }
 
         if (nodes.isEmpty()) return
 
-        // 1. Active Trip Screen Guard
-        val isOnActiveTripScreen = nodes.any {
-            val t = it.text
-            t.contains("Start Trip", ignoreCase = true) ||
-            t.contains("Cancel Trip", ignoreCase = true) ||
-            t.contains("Cash to Collect", ignoreCase = true) ||
-            t.contains("Trip Fare", ignoreCase = true) ||
-            t.contains("End Trip", ignoreCase = true) ||
-            t.contains("Arrived", ignoreCase = true)
+        // 1. Active Trip Guard (No ghost swipes after accepting order)
+        for (item in nodes) {
+            val t = item.text
+            if (t.contains("Start Trip", ignoreCase = true) ||
+                t.contains("Cancel Trip", ignoreCase = true) ||
+                t.contains("Cash to Collect", ignoreCase = true) ||
+                t.contains("Trip Fare", ignoreCase = true) ||
+                t.contains("End Trip", ignoreCase = true) ||
+                t.contains("Arrived", ignoreCase = true)) {
+                return
+            }
         }
-        if (isOnActiveTripScreen) return
 
-        // 2. Locate 'Accept' or 'Swipe to Accept' Button
-        val acceptNode = nodes.firstOrNull {
-            val t = it.text.trim()
+        // 2. Find 'Accept' or 'Swipe to Accept' Button
+        var targetAcceptNode: NodeItem? = null
+        val minY = (metrics.heightPixels * 0.25).toInt()
+        val maxY = (metrics.heightPixels * 0.80).toInt()
+        for (item in nodes) {
+            val t = item.text.trim()
             val validText = t.equals("Accept", ignoreCase = true) || t.contains("Swipe to Accept", ignoreCase = true)
-            val validPosition = it.bounds.centerY() in (metrics.heightPixels * 0.25).toInt()..(metrics.heightPixels * 0.80).toInt()
-            validText && validPosition
-        } ?: return
-
+            if (validText && item.bounds.centerY() in minY..maxY) {
+                targetAcceptNode = item
+                break
+            }
+        }
+        val acceptNode = targetAcceptNode ?: return
         val acceptCenterY = acceptNode.bounds.centerY()
 
-        // 3. Strictly Detect Top Order Fare Only
+        // 3. Detect Top Order Fare Only
         var detectedOrderFare: Int? = null
         var fareBottomY = 0
         var topMostY = Int.MAX_VALUE
@@ -107,9 +117,12 @@ class AutoAcceptService : AccessibilityService() {
         val kmRegex = Regex("""\(\s*\d+(?:\.\d+)?\s*km\s*\)""", RegexOption.IGNORE_CASE)
 
         if (detectedOrderFare == null) {
-            val firstKmTopY = nodes.filter { kmRegex.containsMatchIn(it.text) }
-                .minOfOrNull { it.bounds.top } ?: acceptCenterY
-
+            var firstKmTopY = acceptCenterY
+            for (item in nodes) {
+                if (kmRegex.containsMatchIn(item.text) && item.bounds.top < firstKmTopY) {
+                    firstKmTopY = item.bounds.top
+                }
+            }
             for (item in nodes) {
                 if (item.bounds.centerY() < firstKmTopY) {
                     val cleanText = item.text.replace("₹", "").replace(",", "").trim()
@@ -126,9 +139,9 @@ class AutoAcceptService : AccessibilityService() {
             }
         }
 
-        val orderFare = detectedOrderFare ?: 0
+        val orderFare = detectedOrderFare ?: return
 
-        // 4. Strict Separation of Pickup vs Drop Blocks
+        // 4. Separate Pickup Block (Header + Address) vs Drop Block (Header + Address)
         val locationNodes = nodes.filter {
             it.bounds.top >= fareBottomY - 15 &&
             it.bounds.bottom <= acceptNode.bounds.top + 15
@@ -142,13 +155,8 @@ class AutoAcceptService : AccessibilityService() {
 
         if (kmAnchorNodes.size >= 2) {
             val dropStartY = kmAnchorNodes[1].bounds.top - 8
-            pickupFullBlock = locationNodes
-                .filter { it.bounds.centerY() < dropStartY }
-                .joinToString(" ") { it.text }
-
-            dropFullBlock = locationNodes
-                .filter { it.bounds.centerY() >= dropStartY }
-                .joinToString(" ") { it.text }
+            pickupFullBlock = locationNodes.filter { it.bounds.centerY() < dropStartY }.joinToString(" ") { it.text }
+            dropFullBlock = locationNodes.filter { it.bounds.centerY() >= dropStartY }.joinToString(" ") { it.text }
         } else if (locationNodes.size >= 2) {
             val midIndex = locationNodes.size / 2
             pickupFullBlock = locationNodes.subList(0, midIndex).joinToString(" ") { it.text }
@@ -161,36 +169,42 @@ class AutoAcceptService : AccessibilityService() {
             dropFullBlock = lines.drop(half).joinToString(" ")
         }
 
-        // 5. ZONE PRIORITY OVERRIDE LOGIC:
-        // If Pickup or Drop zone filters are active and match successfully, we OVERRIDE (bypass) the Min Fare check.
+        // 5. EXCLUSIVE FILTER DECISION ENGINE:
+        // Rule A: If Pickup or Drop Filter is ON -> Ignore Fare completely and match strictly by Zone!
+        // Rule B: If Fare Filter is ON (and Zones OFF) -> Match strictly by Minimum Fare!
         val usePickupFilter = prefs.getBoolean("USE_PICKUP_FILTER", false)
         val pickupQueryStr = prefs.getString("PICKUP_FILTER", "")?.trim() ?: ""
-        var isPickupMatched = false
-        if (usePickupFilter && pickupQueryStr.isNotEmpty()) {
-            val selectedPickups = pickupQueryStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            isPickupMatched = selectedPickups.any { areaName ->
-                matchesAreaInAddressBlock(pickupFullBlock, areaName)
-            }
-        }
 
         val useDropFilter = prefs.getBoolean("USE_DROP_FILTER", false)
         val dropQueryStr = prefs.getString("DROP_FILTER", "")?.trim() ?: ""
-        var isDropMatched = false
-        if (useDropFilter && dropQueryStr.isNotEmpty()) {
-            val selectedDrops = dropQueryStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            isDropMatched = selectedDrops.any { areaName ->
-                matchesAreaInAddressBlock(dropFullBlock, areaName)
-            }
-        }
 
-        // Enforcement Check
         if (usePickupFilter || useDropFilter) {
-            // If zone filters are enabled, AT LEAST ONE active zone must match
-            val anyZoneActiveAndMatched = (usePickupFilter && isPickupMatched) || (useDropFilter && isDropMatched)
-            // Also ensure if both are checked, respective ones match if desired, but general rule: if zone matches, fare check is bypassed!
-            if (!anyZoneActiveAndMatched) return
+            if (usePickupFilter) {
+                if (pickupQueryStr.isEmpty()) return
+                val selectedPickups = pickupQueryStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                var pickupOk = false
+                for (area in selectedPickups) {
+                    if (matchesAreaInAddressBlock(pickupFullBlock, area)) {
+                        pickupOk = true
+                        break
+                    }
+                }
+                if (!pickupOk) return
+            }
+
+            if (useDropFilter) {
+                if (dropQueryStr.isEmpty()) return
+                val selectedDrops = dropQueryStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                var dropOk = false
+                for (area in selectedDrops) {
+                    if (matchesAreaInAddressBlock(dropFullBlock, area)) {
+                        dropOk = true
+                        break
+                    }
+                }
+                if (!dropOk) return
+            }
         } else {
-            // If no zone filters are active, enforce Minimum Fare Filter strictly
             val useFareFilter = prefs.getBoolean("USE_FARE_FILTER", true)
             if (useFareFilter) {
                 val minFare = prefs.getInt("MIN_FARE", 200)
@@ -198,7 +212,7 @@ class AutoAcceptService : AccessibilityService() {
             }
         }
 
-        // 6. Execute Swipe at Selected Velocity
+        // 6. Swipe at Selected Velocity
         val speedMode = prefs.getString("SWIPE_SPEED", "QUICK") ?: "QUICK"
         lastSwipeTime = currentTime
 
@@ -223,19 +237,15 @@ class AutoAcceptService : AccessibilityService() {
             .replace(Regex("""\s+"""), " ")
 
         val cleanAreaKey = selectedArea.lowercase().trim()
-
         if (normalizedBlock.contains(cleanAreaKey)) return true
 
         val aliases = areaAliases[cleanAreaKey]
         if (aliases != null) {
             for (alias in aliases) {
                 val normalizedAlias = alias.lowercase().replace(".", " ").replace("-", " ").trim()
-                if (normalizedBlock.contains(normalizedAlias)) {
-                    return true
-                }
+                if (normalizedBlock.contains(normalizedAlias)) return true
             }
         }
-
         return false
     }
 
@@ -246,7 +256,6 @@ class AutoAcceptService : AccessibilityService() {
         screenH: Int
     ) {
         if (node == null || !node.isVisibleToUser) return
-
         val t = node.text?.toString()?.trim()
         val d = node.contentDescription?.toString()?.trim()
         val finalStr = if (!t.isNullOrEmpty()) t else d
@@ -265,12 +274,7 @@ class AutoAcceptService : AccessibilityService() {
 
     private fun performSpeedSlide(acceptBounds: Rect, speedMode: String) {
         val metrics = resources.displayMetrics
-        val slideY = if (acceptBounds.centerY() > 100) {
-            acceptBounds.centerY().toFloat()
-        } else {
-            metrics.heightPixels * 0.44f
-        }
-
+        val slideY = if (acceptBounds.centerY() > 100) acceptBounds.centerY().toFloat() else metrics.heightPixels * 0.44f
         val startX = metrics.widthPixels * 0.15f
         val endX = metrics.widthPixels * 0.74f
 
