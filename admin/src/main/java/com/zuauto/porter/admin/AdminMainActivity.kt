@@ -710,7 +710,7 @@ class AdminMainActivity : AppCompatActivity() {
             hint = "Changelog Release Notes"
             setText("• Major ZuAuto Rebrand\n• Inbuilt OTA Update Engine\n• Instant Key Licensing\n• Cloud Order Telemetry")
             setTextColor(Color.WHITE)
-            lines = 3
+            setLines(3)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#0C1428"))
                 cornerRadius = dp(8).toFloat()
