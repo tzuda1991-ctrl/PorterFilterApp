@@ -643,7 +643,7 @@ class AdminMainActivity : AppCompatActivity() {
             }
 
             Toast.makeText(this, "Generating $count keys...", Toast.LENGTH_SHORT).show()
-            AdminCloudService.generateLicenseKeys("vip", selectedDays, count) { keys ->
+            AdminCloudService.generateLicenseKeys(count, "vip", selectedDays) { keys ->
                 dialog.dismiss()
                 showKeysResultDialog(keys)
             }

@@ -126,6 +126,63 @@ object AdminCloudService {
         }
     }
 
+
+    // ---------------- UPDATE DRIVER STATUS ----------------
+    fun updateDriverStatus(uid: String, newStatus: String, callback: () -> Unit) {
+        executor.execute {
+            try {
+                val url = URL("$FIRESTORE_BASE_URL/users/$uid?updateMask.fieldPaths=status&key=$FIREBASE_API_KEY")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "PATCH"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                val body = JSONObject().apply {
+                    val f = JSONObject()
+                    f.put("status", JSONObject().put("stringValue", newStatus))
+                    put("fields", f)
+                }
+                val writer = OutputStreamWriter(conn.outputStream)
+                writer.write(body.toString())
+                writer.flush()
+                writer.close()
+                conn.responseCode
+            } catch (_: Exception) {}
+            mainHandler.post { callback() }
+        }
+    }
+
+    // ---------------- EXTEND DRIVER SUBSCRIPTION ----------------
+    fun extendDriverSubscription(uid: String, daysToAdd: Int, plan: String, callback: () -> Unit) {
+        executor.execute {
+            try {
+                val cal = Calendar.getInstance()
+                cal.add(Calendar.DAY_OF_YEAR, daysToAdd)
+                val expIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(cal.time)
+                val url = URL("$FIRESTORE_BASE_URL/users/$uid?updateMask.fieldPaths=planExpiresAt&updateMask.fieldPaths=validUntil&updateMask.fieldPaths=plan&updateMask.fieldPaths=planName&updateMask.fieldPaths=status&updateMask.fieldPaths=subscriptionStatus&key=$FIREBASE_API_KEY")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "PATCH"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                val body = JSONObject().apply {
+                    val f = JSONObject()
+                    f.put("planExpiresAt", JSONObject().put("stringValue", expIso))
+                    f.put("validUntil", JSONObject().put("stringValue", expIso))
+                    f.put("plan", JSONObject().put("stringValue", plan))
+                    f.put("planName", JSONObject().put("stringValue", plan))
+                    f.put("status", JSONObject().put("stringValue", "active"))
+                    f.put("subscriptionStatus", JSONObject().put("stringValue", "active"))
+                    put("fields", f)
+                }
+                val writer = OutputStreamWriter(conn.outputStream)
+                writer.write(body.toString())
+                writer.flush()
+                writer.close()
+                conn.responseCode
+            } catch (_: Exception) {}
+            mainHandler.post { callback() }
+        }
+    }
+
     // ---------------- FETCH ORDERS VIA RUNQUERY ----------------
     fun fetchOrders(callback: (List<OrderItem>) -> Unit) {
         executor.execute {
@@ -408,6 +465,15 @@ object AdminCloudService {
     }
 
     // ---------------- LICENSE KEYS CREATION ----------------
+    fun generateLicenseKeys(
+        plan: String,
+        days: Int,
+        count: Int,
+        callback: (List<String>) -> Unit
+    ) {
+        generateLicenseKeys(count, plan, days, callback)
+    }
+
     fun generateLicenseKeys(
         count: Int,
         plan: String,
