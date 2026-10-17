@@ -35,42 +35,64 @@ class FloatingControlService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
 
-        // Pill-shaped Floating Bar containing: [ON/OFF] [⚙️ Open App] [✖ Close]
+        // Pill-shaped Floating Bar containing: [ON/OFF] [🚀 Porter] [⚙️ App] [✖ Close]
         floatingBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(16, 12, 16, 12)
+            setPadding(14, 10, 14, 10)
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#E60F172A"))
+                setColor(Color.parseColor("#EE0B0F19"))
                 cornerRadius = 90f
-                setStroke(3, Color.parseColor("#334155"))
+                setStroke(3, Color.parseColor("#38BDF8"))
             }
         }
 
-        // 1. Main ON/OFF Toggle Button
         statusToggleBtn = TextView(this).apply {
-            textSize = 12f
+            textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setPadding(28, 18, 28, 18)
+            setPadding(24, 16, 24, 16)
         }
 
-        // 2. Open App Button (⚙️)
+        // Direct Porter App Launcher Button
+        val openPorterBtn = TextView(this).apply {
+            text = "🚀"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(18, 14, 18, 14)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#7C3AED"))
+                cornerRadius = 60f
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { leftMargin = 8 }
+            setOnClickListener {
+                val intent = packageManager.getLaunchIntentForPackage("com.theporter.android.driverapp")
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                } else {
+                    Toast.makeText(this@FloatingControlService, "Porter Driver App not found", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
         val openAppBtn = TextView(this).apply {
             text = "⚙️"
-            textSize = 15f
+            textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(22, 14, 22, 14)
+            setPadding(18, 14, 18, 14)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#1E293B"))
                 cornerRadius = 60f
             }
-            val lp = LinearLayout.LayoutParams(
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { leftMargin = 12 }
-            layoutParams = lp
+            ).apply { leftMargin = 8 }
             setOnClickListener {
                 val intent = Intent(this@FloatingControlService, MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -79,30 +101,29 @@ class FloatingControlService : Service() {
             }
         }
 
-        // 3. Close Floating Bar Button (✖)
         val closeFloatBtn = TextView(this).apply {
             text = "✖"
-            textSize = 13f
+            textSize = 12f
             setTextColor(Color.parseColor("#F87171"))
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setPadding(22, 14, 22, 14)
+            setPadding(18, 14, 18, 14)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#1E293B"))
                 cornerRadius = 60f
             }
-            val lp = LinearLayout.LayoutParams(
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { leftMargin = 10 }
-            layoutParams = lp
+            ).apply { leftMargin = 8 }
             setOnClickListener {
-                Toast.makeText(this@FloatingControlService, "Floating Icon बंद कर दिया गया", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@FloatingControlService, "ZU Smart Overlay Closed", Toast.LENGTH_SHORT).show()
                 stopSelf()
             }
         }
 
         floatingBar.addView(statusToggleBtn)
+        floatingBar.addView(openPorterBtn)
         floatingBar.addView(openAppBtn)
         floatingBar.addView(closeFloatBtn)
 
@@ -153,7 +174,7 @@ class FloatingControlService : Service() {
                         val current = prefs.getBoolean("BOT_ACTIVE", true)
                         prefs.edit().putBoolean("BOT_ACTIVE", !current).apply()
                         updateVisualState()
-                        val msg = if (!current) "⚡ Auto-Accept: ON" else "💤 Auto-Accept: OFF"
+                        val msg = if (!current) "ZU Smart: ACTIVE" else "ZU Smart: PAUSED"
                         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                     }
                     true
@@ -176,18 +197,18 @@ class FloatingControlService : Service() {
         val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
         val isEnabled = prefs.getBoolean("BOT_ACTIVE", true)
         val useFare = prefs.getBoolean("USE_FARE_FILTER", true)
-        val minFare = prefs.getInt("MIN_FARE", 150)
-        val label = if (useFare) "₹$minFare+" else "ANY ₹"
+        val minFare = prefs.getInt("MIN_FARE", 200)
+        val label = if (useFare) "₹$minFare+" else "ALL"
 
         if (isEnabled) {
-            statusToggleBtn.text = "⚡ ON ($label)"
+            statusToggleBtn.text = "⚡ ZU ON ($label)"
             statusToggleBtn.background = GradientDrawable().apply {
-                setColor(Color.parseColor("#16A34A"))
+                setColor(Color.parseColor("#059669"))
                 cornerRadius = 70f
-                setStroke(3, Color.parseColor("#FACC15"))
+                setStroke(3, Color.parseColor("#00F5D4"))
             }
         } else {
-            statusToggleBtn.text = "💤 OFF"
+            statusToggleBtn.text = "💤 ZU OFF"
             statusToggleBtn.background = GradientDrawable().apply {
                 setColor(Color.parseColor("#DC2626"))
                 cornerRadius = 70f
@@ -197,19 +218,19 @@ class FloatingControlService : Service() {
     }
 
     private fun startForegroundShield() {
-        val channelId = "porter_vip_overlay_channel"
+        val channelId = "zu_smart_overlay_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "Porter VIP Floating Service",
+                "ZU Smart Controller",
                 NotificationManager.IMPORTANCE_LOW
             )
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
 
             val notification = Notification.Builder(this, channelId)
-                .setContentTitle("Porter TZ VIP Active")
-                .setContentText("Floating Control Bar चल रहा है")
+                .setContentTitle("ZU Smart Active")
+                .setContentText("Floating Controller is running")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build()
 
