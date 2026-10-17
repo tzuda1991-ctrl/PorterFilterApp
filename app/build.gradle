@@ -3,14 +3,14 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 android {
-    namespace 'com.example.autoaccept'
+    namespace 'com.porter.tz.vip'
     compileSdk 34
     defaultConfig {
-        applicationId "com.example.autoaccept"
+        applicationId "com.porter.tz.vip"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "2.0-VIP"
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
