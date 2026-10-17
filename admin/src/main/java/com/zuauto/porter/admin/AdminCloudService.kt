@@ -16,6 +16,7 @@ import java.util.concurrent.Executors
 object AdminCloudService {
     private const val FIREBASE_PROJECT_ID = "gmp-demo-project-615064003"
     private const val FIRESTORE_DATABASE_ID = "ai-studio-porterfilterapp-010c463f-82c7-4c8d-8552-abb324a0cb33"
+    private const val FIREBASE_API_KEY = "AIzaSyD3qvSOb402ydPohe7F-Ua_MVXzur0igSc"
 
     private const val FIRESTORE_BASE_URL =
         "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$FIRESTORE_DATABASE_ID/documents"
@@ -54,39 +55,56 @@ object AdminCloudService {
         val usedBy: String
     )
 
-    // ---------------- FETCH DRIVERS ----------------
+    // ---------------- FETCH DRIVERS VIA RUNQUERY ----------------
     fun fetchDrivers(callback: (List<DriverItem>) -> Unit) {
         executor.execute {
             val list = mutableListOf<DriverItem>()
             try {
-                val url = URL("$FIRESTORE_BASE_URL/users?pageSize=100")
+                val url = URL("$FIRESTORE_BASE_URL:runQuery?key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
                 conn.connectTimeout = 8000
                 conn.readTimeout = 8000
+                conn.doOutput = true
 
-                if (conn.responseCode == 200) {
+                val queryBody = JSONObject().apply {
+                    val structured = JSONObject().apply {
+                        val fromArr = JSONArray().apply {
+                            put(JSONObject().put("collectionId", "users"))
+                        }
+                        put("from", fromArr)
+                    }
+                    put("structuredQuery", structured)
+                }
+
+                val writer = OutputStreamWriter(conn.outputStream)
+                writer.write(queryBody.toString())
+                writer.flush()
+                writer.close()
+
+                if (conn.responseCode in 200..299) {
                     val reader = BufferedReader(InputStreamReader(conn.inputStream))
                     val resp = reader.readText()
                     reader.close()
 
-                    val json = JSONObject(resp)
-                    val docs = json.optJSONArray("documents")
-                    if (docs != null) {
-                        for (i in 0 until docs.length()) {
-                            val doc = docs.getJSONObject(i)
-                            val fields = doc.optJSONObject("fields") ?: continue
-                            val uid = fields.optJSONObject("uid")?.optString("stringValue", "") ?: ""
-                            val name = fields.optJSONObject("name")?.optString("stringValue", "Driver") ?: "Driver"
-                            val phone = fields.optJSONObject("phone")?.optString("stringValue", "") ?: ""
-                            val city = fields.optJSONObject("city")?.optString("stringValue", "Bengaluru") ?: "Bengaluru"
-                            val vehicle = fields.optJSONObject("vehicleType")?.optString("stringValue", "2-Wheeler") ?: "2-Wheeler"
-                            val status = fields.optJSONObject("status")?.optString("stringValue", "active") ?: "active"
-                            val plan = fields.optJSONObject("plan")?.optString("stringValue", "pro") ?: "pro"
-                            val exp = fields.optJSONObject("planExpiresAt")?.optString("stringValue", "") ?: ""
-                            if (uid.isNotEmpty() || phone.isNotEmpty()) {
-                                list.add(DriverItem(uid, name, phone, city, vehicle, status, plan, exp))
-                            }
+                    val jsonArr = JSONArray(resp)
+                    for (i in 0 until jsonArr.length()) {
+                        val item = jsonArr.getJSONObject(i)
+                        val doc = item.optJSONObject("document") ?: continue
+                        val fields = doc.optJSONObject("fields") ?: continue
+
+                        val uid = fields.optJSONObject("uid")?.optString("stringValue", "") ?: ""
+                        val name = fields.optJSONObject("name")?.optString("stringValue", "Driver") ?: "Driver"
+                        val phone = fields.optJSONObject("phone")?.optString("stringValue", "") ?: ""
+                        val city = fields.optJSONObject("city")?.optString("stringValue", "Bengaluru") ?: "Bengaluru"
+                        val vehicle = fields.optJSONObject("vehicleType")?.optString("stringValue", "2-Wheeler") ?: "2-Wheeler"
+                        val status = fields.optJSONObject("status")?.optString("stringValue", "active") ?: "active"
+                        val plan = fields.optJSONObject("plan")?.optString("stringValue", "pro") ?: "pro"
+                        val exp = fields.optJSONObject("planExpiresAt")?.optString("stringValue", "") ?: ""
+
+                        if (uid.isNotEmpty() || phone.isNotEmpty() || name.isNotEmpty()) {
+                            list.add(DriverItem(uid, name, phone, city, vehicle, status, plan, exp))
                         }
                     }
                 }
@@ -100,7 +118,7 @@ object AdminCloudService {
     fun updateDriverStatus(uid: String, newStatus: String, callback: () -> Unit) {
         executor.execute {
             try {
-                val url = URL("$FIRESTORE_BASE_URL/users/$uid?updateMask.fieldPaths=status")
+                val url = URL("$FIRESTORE_BASE_URL/users/$uid?updateMask.fieldPaths=status&key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "PATCH"
                 conn.setRequestProperty("Content-Type", "application/json")
@@ -131,7 +149,7 @@ object AdminCloudService {
                 cal.add(Calendar.DAY_OF_YEAR, daysToAdd)
                 val expIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(cal.time)
 
-                val url = URL("$FIRESTORE_BASE_URL/users/$uid?updateMask.fieldPaths=planExpiresAt&updateMask.fieldPaths=plan&updateMask.fieldPaths=status")
+                val url = URL("$FIRESTORE_BASE_URL/users/$uid?updateMask.fieldPaths=planExpiresAt&updateMask.fieldPaths=plan&updateMask.fieldPaths=status&key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "PATCH"
                 conn.setRequestProperty("Content-Type", "application/json")
@@ -172,7 +190,7 @@ object AdminCloudService {
                 val key = "ZU-${days}D-$randCode"
 
                 try {
-                    val url = URL("$FIRESTORE_BASE_URL/license_keys/$key")
+                    val url = URL("$FIRESTORE_BASE_URL/license_keys/$key?key=$FIREBASE_API_KEY")
                     val conn = url.openConnection() as HttpURLConnection
                     conn.requestMethod = "PATCH"
                     conn.setRequestProperty("Content-Type", "application/json")
@@ -202,40 +220,56 @@ object AdminCloudService {
         }
     }
 
-    // ---------------- FETCH ORDERS TELEMETRY ----------------
+    // ---------------- FETCH ORDERS VIA RUNQUERY ----------------
     fun fetchOrders(callback: (List<OrderItem>) -> Unit) {
         executor.execute {
             val list = mutableListOf<OrderItem>()
             try {
-                val url = URL("$FIRESTORE_BASE_URL/orders?pageSize=100")
+                val url = URL("$FIRESTORE_BASE_URL:runQuery?key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
                 conn.connectTimeout = 8000
                 conn.readTimeout = 8000
+                conn.doOutput = true
 
-                if (conn.responseCode == 200) {
+                val queryBody = JSONObject().apply {
+                    val structured = JSONObject().apply {
+                        val fromArr = JSONArray().apply {
+                            put(JSONObject().put("collectionId", "orders"))
+                        }
+                        put("from", fromArr)
+                    }
+                    put("structuredQuery", structured)
+                }
+
+                val writer = OutputStreamWriter(conn.outputStream)
+                writer.write(queryBody.toString())
+                writer.flush()
+                writer.close()
+
+                if (conn.responseCode in 200..299) {
                     val reader = BufferedReader(InputStreamReader(conn.inputStream))
                     val resp = reader.readText()
                     reader.close()
 
-                    val json = JSONObject(resp)
-                    val docs = json.optJSONArray("documents")
-                    if (docs != null) {
-                        for (i in 0 until docs.length()) {
-                            val doc = docs.getJSONObject(i)
-                            val f = doc.optJSONObject("fields") ?: continue
-                            val orderId = f.optJSONObject("orderId")?.optString("stringValue", "PTR-00") ?: "PTR-00"
-                            val dName = f.optJSONObject("driverName")?.optString("stringValue", "Driver") ?: "Driver"
-                            val dPhone = f.optJSONObject("driverPhone")?.optString("stringValue", "") ?: ""
-                            val fare = f.optJSONObject("fare")?.optInt("integerValue", 0) ?: 0
-                            val pickup = f.optJSONObject("pickupArea")?.optString("stringValue", "Pickup") ?: "Pickup"
-                            val drop = f.optJSONObject("dropArea")?.optString("stringValue", "Drop") ?: "Drop"
-                            val city = f.optJSONObject("city")?.optString("stringValue", "Bengaluru") ?: "Bengaluru"
-                            val speed = f.optJSONObject("speedMode")?.optString("stringValue", "QUICK") ?: "QUICK"
-                            val time = f.optJSONObject("acceptedAt")?.optString("stringValue", "") ?: ""
+                    val jsonArr = JSONArray(resp)
+                    for (i in 0 until jsonArr.length()) {
+                        val item = jsonArr.getJSONObject(i)
+                        val doc = item.optJSONObject("document") ?: continue
+                        val f = doc.optJSONObject("fields") ?: continue
 
-                            list.add(OrderItem(orderId, dName, dPhone, fare, pickup, drop, city, speed, time))
-                        }
+                        val orderId = f.optJSONObject("orderId")?.optString("stringValue", "PTR-00") ?: "PTR-00"
+                        val dName = f.optJSONObject("driverName")?.optString("stringValue", "Driver") ?: "Driver"
+                        val dPhone = f.optJSONObject("driverPhone")?.optString("stringValue", "") ?: ""
+                        val fare = f.optJSONObject("fare")?.optInt("integerValue", 0) ?: 0
+                        val pickup = f.optJSONObject("pickupArea")?.optString("stringValue", "Pickup") ?: "Pickup"
+                        val drop = f.optJSONObject("dropArea")?.optString("stringValue", "Drop") ?: "Drop"
+                        val city = f.optJSONObject("city")?.optString("stringValue", "Bengaluru") ?: "Bengaluru"
+                        val speed = f.optJSONObject("speedMode")?.optString("stringValue", "QUICK") ?: "QUICK"
+                        val time = f.optJSONObject("acceptedAt")?.optString("stringValue", "") ?: ""
+
+                        list.add(OrderItem(orderId, dName, dPhone, fare, pickup, drop, city, speed, time))
                     }
                 }
             } catch (_: Exception) {}
@@ -250,12 +284,12 @@ object AdminCloudService {
     ) {
         executor.execute {
             try {
-                val url = URL("$FIRESTORE_BASE_URL/app_config/version_control")
+                val url = URL("$FIRESTORE_BASE_URL/app_config/version_control?key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
                 conn.connectTimeout = 8000
 
-                if (conn.responseCode == 200) {
+                if (conn.responseCode in 200..299) {
                     val reader = BufferedReader(InputStreamReader(conn.inputStream))
                     val resp = reader.readText()
                     reader.close()
@@ -293,7 +327,7 @@ object AdminCloudService {
         executor.execute {
             var success = false
             try {
-                val url = URL("$FIRESTORE_BASE_URL/app_config/version_control")
+                val url = URL("$FIRESTORE_BASE_URL/app_config/version_control?key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "PATCH"
                 conn.setRequestProperty("Content-Type", "application/json")

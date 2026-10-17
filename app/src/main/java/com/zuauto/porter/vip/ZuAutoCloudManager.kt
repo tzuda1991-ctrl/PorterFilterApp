@@ -17,11 +17,12 @@ import java.util.concurrent.Executors
 object ZuAutoCloudManager {
     const val CURRENT_VERSION_CODE = 10
     const val CURRENT_VERSION_NAME = "10.0-ZuAuto"
-    
+
     private const val FIREBASE_PROJECT_ID = "gmp-demo-project-615064003"
     private const val FIRESTORE_DATABASE_ID = "ai-studio-porterfilterapp-010c463f-82c7-4c8d-8552-abb324a0cb33"
-    
-    private const val FIRESTORE_BASE_URL = 
+    private const val FIREBASE_API_KEY = "AIzaSyD3qvSOb402ydPohe7F-Ua_MVXzur0igSc"
+
+    private const val FIRESTORE_BASE_URL =
         "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$FIRESTORE_DATABASE_ID/documents"
 
     private val executor = Executors.newFixedThreadPool(3)
@@ -45,7 +46,6 @@ object ZuAutoCloudManager {
     fun isSubscriptionActive(context: Context): Boolean {
         val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         val expiresAt = prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L)
-        // If not set yet, grant initial 3-day grace trial
         if (expiresAt == 0L) return true
         return System.currentTimeMillis() < expiresAt
     }
@@ -57,13 +57,13 @@ object ZuAutoCloudManager {
     ) {
         executor.execute {
             try {
-                val url = URL("$FIRESTORE_BASE_URL/app_config/version_control")
+                val url = URL("$FIRESTORE_BASE_URL/app_config/version_control?key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
                 conn.connectTimeout = 8000
                 conn.readTimeout = 8000
 
-                if (conn.responseCode == 200) {
+                if (conn.responseCode in 200..299) {
                     val reader = BufferedReader(InputStreamReader(conn.inputStream))
                     val response = reader.readText()
                     reader.close()
@@ -71,17 +71,17 @@ object ZuAutoCloudManager {
                     val json = JSONObject(response)
                     val fields = json.optJSONObject("fields")
                     if (fields != null) {
-                        val remoteCode = fields.optJSONObject("currentVersionCode")?.optInt("integerValue", CURRENT_VERSION_CODE) 
+                        val remoteCode = fields.optJSONObject("currentVersionCode")?.optInt("integerValue", CURRENT_VERSION_CODE)
                             ?: CURRENT_VERSION_CODE
-                        val minCode = fields.optJSONObject("minSupportedVersionCode")?.optInt("integerValue", CURRENT_VERSION_CODE) 
+                        val minCode = fields.optJSONObject("minSupportedVersionCode")?.optInt("integerValue", CURRENT_VERSION_CODE)
                             ?: CURRENT_VERSION_CODE
-                        val remoteName = fields.optJSONObject("currentVersionName")?.optString("stringValue", CURRENT_VERSION_NAME) 
+                        val remoteName = fields.optJSONObject("currentVersionName")?.optString("stringValue", CURRENT_VERSION_NAME)
                             ?: CURRENT_VERSION_NAME
-                        val downloadUrl = fields.optJSONObject("apkDownloadUrl")?.optString("stringValue", "") 
+                        val downloadUrl = fields.optJSONObject("apkDownloadUrl")?.optString("stringValue", "")
                             ?: ""
-                        val releaseNotes = fields.optJSONObject("releaseNotes")?.optString("stringValue", "") 
+                        val releaseNotes = fields.optJSONObject("releaseNotes")?.optString("stringValue", "")
                             ?: ""
-                        val forceUpdate = fields.optJSONObject("forceUpdate")?.optBoolean("booleanValue", false) 
+                        val forceUpdate = fields.optJSONObject("forceUpdate")?.optBoolean("booleanValue", false)
                             ?: false
 
                         val isOlder = CURRENT_VERSION_CODE < remoteCode
@@ -95,9 +95,7 @@ object ZuAutoCloudManager {
                         }
                     }
                 }
-            } catch (e: Exception) {
-                // Offline fallback - allow running
-            }
+            } catch (_: Exception) {}
         }
     }
 
@@ -130,7 +128,7 @@ object ZuAutoCloudManager {
         // Sync to Firestore Cloud in background
         executor.execute {
             try {
-                val url = URL("$FIRESTORE_BASE_URL/users/$uid")
+                val url = URL("$FIRESTORE_BASE_URL/users/$uid?key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "PATCH"
                 conn.setRequestProperty("Content-Type", "application/json")
@@ -181,13 +179,13 @@ object ZuAutoCloudManager {
 
         executor.execute {
             try {
-                val url = URL("$FIRESTORE_BASE_URL/license_keys/$cleanKey")
+                val url = URL("$FIRESTORE_BASE_URL/license_keys/$cleanKey?key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
                 conn.connectTimeout = 8000
                 conn.readTimeout = 8000
 
-                if (conn.responseCode == 200) {
+                if (conn.responseCode in 200..299) {
                     val reader = BufferedReader(InputStreamReader(conn.inputStream))
                     val resp = reader.readText()
                     reader.close()
@@ -204,7 +202,7 @@ object ZuAutoCloudManager {
                     }
 
                     // Mark as used in Firestore
-                    val patchConn = URL("$FIRESTORE_BASE_URL/license_keys/$cleanKey?updateMask.fieldPaths=isUsed&updateMask.fieldPaths=usedByPhone").openConnection() as HttpURLConnection
+                    val patchConn = URL("$FIRESTORE_BASE_URL/license_keys/$cleanKey?updateMask.fieldPaths=isUsed&updateMask.fieldPaths=usedByPhone&key=$FIREBASE_API_KEY").openConnection() as HttpURLConnection
                     patchConn.requestMethod = "PATCH"
                     patchConn.setRequestProperty("Content-Type", "application/json")
                     patchConn.doOutput = true
@@ -241,8 +239,7 @@ object ZuAutoCloudManager {
                 } else {
                     mainHandler.post { onDone(false, "Invalid license key code.") }
                 }
-            } catch (e: Exception) {
-                // Offline fallback demo: if key matches ZU pattern, allow
+            } catch (_: Exception) {
                 if (cleanKey.startsWith("ZU")) {
                     val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
                     val newExpiry = System.currentTimeMillis() + (30L * 86400000L)
@@ -276,7 +273,6 @@ object ZuAutoCloudManager {
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         val timeStr = sdf.format(Date())
 
-        // Save locally to SharedPreferences history
         val historyStr = prefs.getString("LOCAL_ORDER_HISTORY", "[]") ?: "[]"
         val list = JSONArray(historyStr)
         val newOrderObj = JSONObject().apply {
@@ -294,7 +290,7 @@ object ZuAutoCloudManager {
         // Sync to Cloud Firestore orders collection
         executor.execute {
             try {
-                val url = URL("$FIRESTORE_BASE_URL/orders/$orderId")
+                val url = URL("$FIRESTORE_BASE_URL/orders/$orderId?key=$FIREBASE_API_KEY")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "PATCH"
                 conn.setRequestProperty("Content-Type", "application/json")

@@ -11,6 +11,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Html
 import android.text.InputType
 import android.util.TypedValue
@@ -31,6 +33,16 @@ class AdminMainActivity : AppCompatActivity() {
     private val driverList = mutableListOf<AdminCloudService.DriverItem>()
     private val orderList = mutableListOf<AdminCloudService.OrderItem>()
 
+    private val autoRefreshHandler = Handler(Looper.getMainLooper())
+    private val autoRefreshRunnable = object : Runnable {
+        override fun run() {
+            if (isAuthenticated) {
+                refreshData()
+            }
+            autoRefreshHandler.postDelayed(this, 3500)
+        }
+    }
+
     private fun dp(v: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
     ).toInt()
@@ -45,6 +57,18 @@ class AdminMainActivity : AppCompatActivity() {
         } else {
             buildAdminDashboard()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isAuthenticated) {
+            autoRefreshHandler.post(autoRefreshRunnable)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        autoRefreshHandler.removeCallbacks(autoRefreshRunnable)
     }
 
     private fun showLoginGate() {
@@ -119,6 +143,7 @@ class AdminMainActivity : AppCompatActivity() {
                 if (input == "zu786" || input.isEmpty()) {
                     isAuthenticated = true
                     buildAdminDashboard()
+                    autoRefreshHandler.post(autoRefreshRunnable)
                 } else {
                     Toast.makeText(this@AdminMainActivity, "Invalid PIN", Toast.LENGTH_SHORT).show()
                 }
@@ -166,7 +191,7 @@ class AdminMainActivity : AppCompatActivity() {
         }
 
         headerStatusTv = TextView(this).apply {
-            text = "● Connected to Firebase Cloud"
+            text = "● Connected (${driverList.size} Drivers)"
             textSize = 10f
             setTextColor(Color.parseColor("#10B981"))
             typeface = Typeface.DEFAULT_BOLD
@@ -243,7 +268,7 @@ class AdminMainActivity : AppCompatActivity() {
 
                 setOnClickListener {
                     currentTab = id
-                    buildAdminDashboard() // Re-render tab
+                    buildAdminDashboard()
                 }
             }
             bottomNav.addView(tabBtn)
@@ -253,7 +278,6 @@ class AdminMainActivity : AppCompatActivity() {
         setContentView(root)
 
         renderCurrentTab()
-        refreshData()
     }
 
     private fun renderCurrentTab() {
@@ -268,11 +292,12 @@ class AdminMainActivity : AppCompatActivity() {
     }
 
     private fun refreshData() {
-        headerStatusTv.text = "Syncing..."
         AdminCloudService.fetchDrivers { list ->
             driverList.clear()
             driverList.addAll(list)
-            headerStatusTv.text = "● Connected (${driverList.size} Drivers)"
+            if (::headerStatusTv.isInitialized) {
+                headerStatusTv.text = "● Connected (${driverList.size} Drivers)"
+            }
             if (currentTab == "DASHBOARD" || currentTab == "DRIVERS") {
                 renderCurrentTab()
             }
@@ -337,7 +362,7 @@ class AdminMainActivity : AppCompatActivity() {
             }
         }
 
-        col.addView(makeKpi("TOTAL DRIVERS REGISTERED", "${driverList.size}", "● $activeCount Currently Active", "#0C162E", "#0284C7"))
+        col.addView(makeKpi("TOTAL DRIVERS REGISTERED", "${driverList.size}", "● $activeCount Currently Active (incl. ttz)", "#0C162E", "#0284C7"))
         col.addView(makeKpi("TOTAL ORDERS AUTO-ACCEPTED", "${orderList.size}", "100% Automated Instant Dispatch", "#07201C", "#10B981"))
         col.addView(makeKpi("FLEET FARE VOLUME", "₹$totalRevenue", "Recorded accepted rides", "#24180A", "#F59E0B"))
 
@@ -414,99 +439,110 @@ class AdminMainActivity : AppCompatActivity() {
         }
         val itemsCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
-        for (d in driverList) {
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#091020"))
-                    cornerRadius = dp(12).toFloat()
-                    setStroke(dp(1), Color.parseColor("#1E293B"))
-                }
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(8) }
-            }
-
-            val row1 = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            val nameTv = TextView(this).apply {
-                text = d.name
-                textSize = 13f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.WHITE)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val statusBadge = TextView(this).apply {
-                text = d.status.uppercase(Locale.US)
-                textSize = 9f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(if (d.status.equals("active", true)) Color.parseColor("#34D399") else Color.parseColor("#F87171"))
-                setPadding(dp(6), dp(2), dp(6), dp(2))
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#1E293B"))
-                    cornerRadius = dp(6).toFloat()
-                }
-            }
-            row1.addView(nameTv)
-            row1.addView(statusBadge)
-
-            val phoneTv = TextView(this).apply {
-                text = "${d.phone} • ${d.city} • ${d.plan.uppercase(Locale.US)}"
-                textSize = 10f
+        if (driverList.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                text = "Loading drivers from cloud..."
                 setTextColor(Color.parseColor("#94A3B8"))
-                setPadding(0, dp(2), 0, dp(6))
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(40), 0, dp(40))
             }
-
-            val actionsRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-            }
-
-            val extendBtn = Button(this).apply {
-                text = "+30 Days"
-                textSize = 10f
-                setTextColor(Color.WHITE)
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#0284C7"))
-                    cornerRadius = dp(8).toFloat()
+            itemsCol.addView(emptyTv)
+        } else {
+            for (d in driverList) {
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#091020"))
+                        cornerRadius = dp(12).toFloat()
+                        setStroke(dp(1), Color.parseColor("#1E293B"))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(8) }
                 }
-                layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { rightMargin = dp(4) }
-                setOnClickListener {
-                    AdminCloudService.extendDriverSubscription(d.uid, 30, "vip") {
-                        Toast.makeText(this@AdminMainActivity, "Extended 30 Days for ${d.name}", Toast.LENGTH_SHORT).show()
-                        refreshData()
+
+                val row1 = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                val nameTv = TextView(this).apply {
+                    text = d.name
+                    textSize = 13f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val statusBadge = TextView(this).apply {
+                    text = d.status.uppercase(Locale.US)
+                    textSize = 9f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(if (d.status.equals("active", true)) Color.parseColor("#34D399") else Color.parseColor("#F87171"))
+                    setPadding(dp(6), dp(2), dp(6), dp(2))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#1E293B"))
+                        cornerRadius = dp(6).toFloat()
                     }
                 }
-            }
+                row1.addView(nameTv)
+                row1.addView(statusBadge)
 
-            val toggleBtn = Button(this).apply {
-                val isActive = d.status.equals("active", true)
-                text = if (isActive) "Suspend" else "Activate"
-                textSize = 10f
-                setTextColor(Color.WHITE)
-                background = GradientDrawable().apply {
-                    setColor(if (isActive) Color.parseColor("#DC2626") else Color.parseColor("#059669"))
-                    cornerRadius = dp(8).toFloat()
+                val phoneTv = TextView(this).apply {
+                    text = "${d.phone} • ${d.city} • ${d.plan.uppercase(Locale.US)}"
+                    textSize = 10f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                    setPadding(0, dp(2), 0, dp(6))
                 }
-                layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { leftMargin = dp(4) }
-                setOnClickListener {
-                    val next = if (isActive) "suspended" else "active"
-                    AdminCloudService.updateDriverStatus(d.uid, next) {
-                        refreshData()
+
+                val actionsRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                }
+
+                val extendBtn = Button(this).apply {
+                    text = "+30 Days"
+                    textSize = 10f
+                    setTextColor(Color.WHITE)
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#0284C7"))
+                        cornerRadius = dp(8).toFloat()
+                    }
+                    layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { rightMargin = dp(4) }
+                    setOnClickListener {
+                        AdminCloudService.extendDriverSubscription(d.uid, 30, "vip") {
+                            Toast.makeText(this@AdminMainActivity, "Extended 30 Days for ${d.name}", Toast.LENGTH_SHORT).show()
+                            refreshData()
+                        }
                     }
                 }
+
+                val toggleBtn = Button(this).apply {
+                    val isActive = d.status.equals("active", true)
+                    text = if (isActive) "Suspend" else "Activate"
+                    textSize = 10f
+                    setTextColor(Color.WHITE)
+                    background = GradientDrawable().apply {
+                        setColor(if (isActive) Color.parseColor("#DC2626") else Color.parseColor("#059669"))
+                        cornerRadius = dp(8).toFloat()
+                    }
+                    layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { leftMargin = dp(4) }
+                    setOnClickListener {
+                        val next = if (isActive) "suspended" else "active"
+                        AdminCloudService.updateDriverStatus(d.uid, next) {
+                            refreshData()
+                        }
+                    }
+                }
+
+                actionsRow.addView(extendBtn)
+                actionsRow.addView(toggleBtn)
+
+                card.addView(row1)
+                card.addView(phoneTv)
+                card.addView(actionsRow)
+                itemsCol.addView(card)
             }
-
-            actionsRow.addView(extendBtn)
-            actionsRow.addView(toggleBtn)
-
-            card.addView(row1)
-            card.addView(phoneTv)
-            card.addView(actionsRow)
-            itemsCol.addView(card)
         }
 
         scroll.addView(itemsCol)
@@ -791,47 +827,58 @@ class AdminMainActivity : AppCompatActivity() {
         }
         col.addView(headTv)
 
-        for (ord in orderList) {
-            val item = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(10), dp(8), dp(10), dp(8))
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#081022"))
-                    cornerRadius = dp(10).toFloat()
-                    setStroke(dp(1), Color.parseColor("#1E293B"))
-                }
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(6) }
-            }
-
-            val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val fareTv = TextView(this).apply {
-                text = "₹${ord.fare}"
-                textSize = 14f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.parseColor("#00E5FF"))
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val driverTv = TextView(this).apply {
-                text = "${ord.driverName} (${ord.speed})"
-                textSize = 10f
+        if (orderList.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                text = "No orders accepted yet."
                 setTextColor(Color.parseColor("#94A3B8"))
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(40), 0, dp(40))
             }
-            row1.addView(fareTv)
-            row1.addView(driverTv)
+            col.addView(emptyTv)
+        } else {
+            for (ord in orderList) {
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#081022"))
+                        cornerRadius = dp(10).toFloat()
+                        setStroke(dp(1), Color.parseColor("#1E293B"))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(6) }
+                }
 
-            val routeTv = TextView(this).apply {
-                text = "🟢 ${ord.pickup} → 🔴 ${ord.drop}"
-                textSize = 10f
-                setTextColor(Color.parseColor("#E2E8F0"))
-                setPadding(0, dp(2), 0, 0)
+                val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                val fareTv = TextView(this).apply {
+                    text = "₹${ord.fare}"
+                    textSize = 14f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.parseColor("#00E5FF"))
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val driverTv = TextView(this).apply {
+                    text = "${ord.driverName} (${ord.speed})"
+                    textSize = 10f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                }
+                row1.addView(fareTv)
+                row1.addView(driverTv)
+
+                val routeTv = TextView(this).apply {
+                    text = "🟢 ${ord.pickup} → 🔴 ${ord.drop}"
+                    textSize = 10f
+                    setTextColor(Color.parseColor("#E2E8F0"))
+                    setPadding(0, dp(2), 0, 0)
+                }
+
+                item.addView(row1)
+                item.addView(routeTv)
+                col.addView(item)
             }
-
-            item.addView(row1)
-            item.addView(routeTv)
-            col.addView(item)
         }
 
         scroll.addView(col)
