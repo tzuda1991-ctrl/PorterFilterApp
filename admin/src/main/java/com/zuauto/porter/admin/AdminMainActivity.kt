@@ -32,6 +32,7 @@ class AdminMainActivity : AppCompatActivity() {
 
     private val driverList = mutableListOf<AdminCloudService.DriverItem>()
     private val orderList = mutableListOf<AdminCloudService.OrderItem>()
+    private val paymentList = mutableListOf<AdminCloudService.PaymentRequestItem>()
 
     private val autoRefreshHandler = Handler(Looper.getMainLooper())
     private val autoRefreshRunnable = object : Runnable {
@@ -236,8 +237,11 @@ class AdminMainActivity : AppCompatActivity() {
             }
         }
 
+        val pendingCount = paymentList.count { it.status.equals("pending", true) }
+        val payBadgeText = if (pendingCount > 0) "💳 ($pendingCount)" else "💳"
         val tabs = listOf(
             Triple("DASHBOARD", "📊", "Stats"),
+            Triple("PAYMENTS", payBadgeText, "Payments"),
             Triple("DRIVERS", "👥", "Drivers"),
             Triple("KEYS", "🔑", "Keys"),
             Triple("OTA", "🚀", "Updates"),
@@ -284,6 +288,7 @@ class AdminMainActivity : AppCompatActivity() {
         contentFrame.removeAllViews()
         when (currentTab) {
             "DASHBOARD" -> renderDashboardView()
+            "PAYMENTS" -> renderPaymentsView()
             "DRIVERS" -> renderDriversView()
             "KEYS" -> renderKeysView()
             "OTA" -> renderOtaView()
@@ -306,6 +311,13 @@ class AdminMainActivity : AppCompatActivity() {
             orderList.clear()
             orderList.addAll(orders)
             if (currentTab == "ORDERS" || currentTab == "DASHBOARD") {
+                renderCurrentTab()
+            }
+        }
+        AdminCloudService.fetchPaymentRequests { reqs ->
+            paymentList.clear()
+            paymentList.addAll(reqs)
+            if (currentTab == "PAYMENTS" || currentTab == "DASHBOARD") {
                 renderCurrentTab()
             }
         }
@@ -884,4 +896,176 @@ class AdminMainActivity : AppCompatActivity() {
         scroll.addView(col)
         contentFrame.addView(scroll)
     }
+
+    // ---------------- PAYMENTS VERIFICATION TAB ----------------
+    private fun renderPaymentsView() {
+        val scroll = ScrollView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        }
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+
+        val pendingCount = paymentList.count { it.status.equals("pending", true) }
+        val headTv = TextView(this).apply {
+            text = "💳 Payment Requests & UTR Proofs ($pendingCount Pending)"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(0, 0, 0, dp(8))
+        }
+        col.addView(headTv)
+
+        if (paymentList.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                text = "No payment requests submitted yet.\nUsers can buy plans via UPI in Driver App."
+                setTextColor(Color.parseColor("#94A3B8"))
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(40), 0, dp(40))
+            }
+            col.addView(emptyTv)
+        } else {
+            for (req in paymentList) {
+                val isPending = req.status.equals("pending", true)
+                val isApproved = req.status.equals("approved", true)
+
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#081022"))
+                        cornerRadius = dp(10).toFloat()
+                        setStroke(dp(1), if (isPending) Color.parseColor("#F59E0B") else Color.parseColor("#1E293B"))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(8) }
+                }
+
+                // Row 1: User Name & Plan
+                val r1 = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                val nameTv = TextView(this).apply {
+                    text = "${req.userName} • ₹${req.amount}"
+                    textSize = 13.5f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val statusBadge = TextView(this).apply {
+                    text = req.status.uppercase(Locale.US)
+                    textSize = 9f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(if (isPending) Color.parseColor("#F59E0B") else if (isApproved) Color.parseColor("#10B981") else Color.parseColor("#EF4444"))
+                    setPadding(dp(6), dp(2), dp(6), dp(2))
+                    background = GradientDrawable().apply {
+                        setColor(if (isPending) Color.parseColor("#261C08") else if (isApproved) Color.parseColor("#062817") else Color.parseColor("#280B0B"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                }
+                r1.addView(nameTv)
+                r1.addView(statusBadge)
+                card.addView(r1)
+
+                // Meta: Phone & Plan
+                val metaTv = TextView(this).apply {
+                    text = "${req.planName} (${req.durationDays} Days) • Phone: ${req.userPhone}"
+                    textSize = 10.5f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                    setPadding(0, dp(2), 0, dp(4))
+                }
+                card.addView(metaTv)
+
+                // UTR Row
+                val utrRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(8), dp(6), dp(8), dp(6))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#0F172A"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                }
+                val utrTv = TextView(this).apply {
+                    text = "UTR: ${req.utrNumber}"
+                    textSize = 11f
+                    typeface = Typeface.MONOSPACE
+                    setTextColor(Color.parseColor("#00E5FF"))
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val copyUtr = TextView(this).apply {
+                    text = "COPY"
+                    textSize = 9f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.parseColor("#38BDF8"))
+                    setOnClickListener {
+                        val clip = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clip.setPrimaryClip(ClipData.newPlainText("UTR", req.utrNumber))
+                        Toast.makeText(this@AdminMainActivity, "UTR Copied!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                utrRow.addView(utrTv)
+                utrRow.addView(copyUtr)
+                card.addView(utrRow)
+
+                // Action Buttons for Pending Requests
+                if (isPending) {
+                    val btnRow = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                    }
+                    val approveBtn = Button(this).apply {
+                        text = "✓ APPROVE & ACTIVATE"
+                        textSize = 10f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(Color.parseColor("#050811"))
+                        background = GradientDrawable(
+                            GradientDrawable.Orientation.LEFT_RIGHT,
+                            intArrayOf(Color.parseColor("#10B981"), Color.parseColor("#059669"))
+                        ).apply { cornerRadius = dp(6).toFloat() }
+                        layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { rightMargin = dp(6) }
+                        setOnClickListener {
+                            AdminCloudService.approvePaymentRequest(req) { success, msg ->
+                                Toast.makeText(this@AdminMainActivity, msg, Toast.LENGTH_LONG).show()
+                                refreshData()
+                            }
+                        }
+                    }
+                    val rejectBtn = Button(this).apply {
+                        text = "✕ REJECT"
+                        textSize = 10f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(Color.WHITE)
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#991B1B"))
+                            cornerRadius = dp(6).toFloat()
+                        }
+                        layoutParams = LinearLayout.LayoutParams(0, dp(34), 0.6f)
+                        setOnClickListener {
+                            AdminCloudService.rejectPaymentRequest(req.id) { success, msg ->
+                                Toast.makeText(this@AdminMainActivity, msg, Toast.LENGTH_SHORT).show()
+                                refreshData()
+                            }
+                        }
+                    }
+                    btnRow.addView(approveBtn)
+                    btnRow.addView(rejectBtn)
+                    card.addView(btnRow)
+                }
+
+                col.addView(card)
+            }
+        }
+
+        scroll.addView(col)
+        contentFrame.addView(scroll)
+    }
+
 }

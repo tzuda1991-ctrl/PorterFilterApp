@@ -1,6 +1,8 @@
 package com.zuauto.porter.vip
 
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -267,7 +269,7 @@ class MainActivity : AppCompatActivity() {
             text = Html.fromHtml("<font color='#94A3B8'>Driver</font><br><b><font color='#FFFFFF'>$savedDriverName ▾</font></b>", Html.FROM_HTML_MODE_LEGACY)
             textSize = 8f
             setPadding(dp(6), dp(2), dp(6), dp(2))
-            setOnClickListener { showLicenseKeyDialog() }
+            setOnClickListener { showDriverProfileAndValidityDialog() }
         }
 
         val savedPlan = prefs.getString("USER_PLAN", "VIP")?.uppercase(Locale.US) ?: "VIP"
@@ -1466,6 +1468,362 @@ class MainActivity : AppCompatActivity() {
             .setView(root)
             .setPositiveButton("Close", null)
             .show()
+    }
+
+
+    // ---------------- DRIVER PROFILE & VALIDITY / BUY DIALOG ----------------
+    private fun showDriverProfileAndValidityDialog() {
+        val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
+        val name = prefs.getString("USER_NAME", "Driver") ?: "Driver"
+        val phone = prefs.getString("USER_PHONE", "--") ?: "--"
+        val uid = prefs.getString("USER_UID", "DRV-1001") ?: "DRV-1001"
+        val city = prefs.getString("USER_CITY", selectedCity) ?: selectedCity
+        val vehicle = prefs.getString("USER_VEHICLE", "Porter Vehicle") ?: "Porter Vehicle"
+        val plan = prefs.getString("USER_PLAN", "TRIAL")?.uppercase(Locale.US) ?: "TRIAL"
+        val expiresAtMillis = prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L)
+        val now = System.currentTimeMillis()
+
+        val isTrial = plan.contains("TRIAL")
+        val isExpired = expiresAtMillis in 1..now
+        val isActive = expiresAtMillis == 0L || expiresAtMillis > now
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#070C18"))
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+
+        // Header: Profile
+        val headRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(12))
+        }
+        val avatar = TextView(this).apply {
+            text = "👤"
+            textSize = 28f
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0F172A"))
+                cornerRadius = dp(24).toFloat()
+                setStroke(dp(1), Color.parseColor("#00E5FF"))
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply { rightMargin = dp(12) }
+        }
+        val profileCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val nameTv = TextView(this).apply {
+            text = name
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }
+        val metaTv = TextView(this).apply {
+            text = "$phone • $city ($uid)"
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#94A3B8"))
+        }
+        profileCol.addView(nameTv)
+        profileCol.addView(metaTv)
+        headRow.addView(avatar)
+        headRow.addView(profileCol)
+        root.addView(headRow)
+
+        // Validity Card
+        val validityCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                if (isActive) {
+                    setColor(Color.parseColor("#0A1F2D"))
+                    setStroke(dp(1), Color.parseColor("#00E5FF"))
+                } else {
+                    setColor(Color.parseColor("#2D0A0A"))
+                    setStroke(dp(1), Color.parseColor("#EF4444"))
+                }
+                cornerRadius = dp(10).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+        }
+        val valTitle = TextView(this).apply {
+            text = if (isExpired) "⚠️ MEMBERSHIP EXPIRED" else if (isTrial) "🕒 3-DAY FREE TRIAL ACTIVE" else "👑 $plan VIP ACCESS ACTIVE"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(if (isExpired) Color.parseColor("#EF4444") else if (isTrial) Color.parseColor("#FACC15") else Color.parseColor("#10B981"))
+        }
+        val valSub = TextView(this).apply {
+            if (expiresAtMillis > 0L) {
+                val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+                val expDateStr = sdf.format(Date(expiresAtMillis))
+                val remainingMs = expiresAtMillis - now
+                val hours = (remainingMs / (1000 * 60 * 60)).coerceAtLeast(0)
+                text = if (isExpired) "Expired on $expDateStr. Renew to restore auto-accept." else "Valid until $expDateStr (Remaining: ~${hours}h)"
+            } else {
+                text = "Lifetime VIP Access Enabled"
+            }
+            textSize = 10f
+            setTextColor(Color.parseColor("#CBD5E1"))
+            setPadding(0, dp(2), 0, 0)
+        }
+        validityCard.addView(valTitle)
+        validityCard.addView(valSub)
+        root.addView(validityCard)
+
+        // Plans Section Title
+        val plansTitle = TextView(this).apply {
+            text = "🚀 SELECT VIP AUTOPILOT PLAN"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#00E5FF"))
+            setPadding(0, 0, 0, dp(8))
+        }
+        root.addView(plansTitle)
+
+        // Dynamic Plans Container
+        val plansScroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(200))
+        }
+        val plansListContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        plansScroll.addView(plansListContainer)
+        root.addView(plansScroll)
+
+        var mainDialog: AlertDialog? = null
+
+        // Fetch Plans from Firestore
+        ZuAutoCloudManager.fetchSubscriptionPlans { plans ->
+            plansListContainer.removeAllViews()
+            for (p in plans) {
+                val pCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#0D1526"))
+                        cornerRadius = dp(8).toFloat()
+                        setStroke(dp(1), Color.parseColor("#1E293B"))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                }
+                val r1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                val pName = TextView(this).apply {
+                    text = "${p.name} (${p.durationDays} Days)"
+                    textSize = 12.5f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val pPrice = TextView(this).apply {
+                    text = "₹${p.price}"
+                    textSize = 14f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.parseColor("#10B981"))
+                }
+                r1.addView(pName)
+                r1.addView(pPrice)
+
+                val pDesc = TextView(this).apply {
+                    text = p.description
+                    textSize = 9.5f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                    setPadding(0, dp(2), 0, dp(6))
+                }
+
+                val buyBtn = Button(this).apply {
+                    text = "BUY NOW - ₹${p.price}"
+                    setTextColor(Color.parseColor("#050811"))
+                    typeface = Typeface.DEFAULT_BOLD
+                    textSize = 11f
+                    background = GradientDrawable(
+                        GradientDrawable.Orientation.LEFT_RIGHT,
+                        intArrayOf(Color.parseColor("#00E5FF"), Color.parseColor("#0284C7"))
+                    ).apply { cornerRadius = dp(6).toFloat() }
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34))
+                    setOnClickListener {
+                        mainDialog?.dismiss()
+                        showUpiCheckoutDialog(p)
+                    }
+                }
+
+                pCard.addView(r1)
+                pCard.addView(pDesc)
+                pCard.addView(buyBtn)
+                plansListContainer.addView(pCard)
+            }
+        }
+
+        // Bottom Actions: Key Redeem
+        val actionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        val redeemKeyBtn = Button(this).apply {
+            text = "🔑 REDEEM KEY"
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#FACC15"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#161E2E"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#F59E0B"))
+            }
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(6) }
+            setOnClickListener {
+                mainDialog?.dismiss()
+                showLicenseKeyDialog()
+            }
+        }
+        val closeBtn = Button(this).apply {
+            text = "CLOSE"
+            textSize = 10.5f
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1E293B"))
+                cornerRadius = dp(8).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(0, dp(38), 0.6f)
+            setOnClickListener { mainDialog?.dismiss() }
+        }
+        actionsRow.addView(redeemKeyBtn)
+        actionsRow.addView(closeBtn)
+        root.addView(actionsRow)
+
+        mainDialog = AlertDialog.Builder(this)
+            .setView(root)
+            .create()
+        mainDialog.show()
+    }
+
+    // ---------------- UPI CHECKOUT & UTR PROOF SUBMISSION DIALOG ----------------
+    private fun showUpiCheckoutDialog(plan: ZuAutoCloudManager.SubscriptionPlan) {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#070C18"))
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+        }
+
+        val title = TextView(this).apply {
+            text = "💳 UPI Instant Payment"
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#00E5FF"))
+        }
+        val sub = TextView(this).apply {
+            text = "Pay for ${plan.name} (₹${plan.price}) and submit UTR to activate immediately."
+            textSize = 11f
+            setTextColor(Color.parseColor("#94A3B8"))
+            setPadding(0, dp(3), 0, dp(12))
+        }
+        root.addView(title)
+        root.addView(sub)
+
+        // UPI Box
+        val upiBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0F172A"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#334155"))
+            }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+        }
+        val upiLabel = TextView(this).apply {
+            text = "OFFICIAL ADMIN UPI ID:"
+            textSize = 9f
+            setTextColor(Color.parseColor("#64748B"))
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val upiIdTv = TextView(this).apply {
+            text = "zuauto.vip@oksbi"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#FACC15"))
+            setPadding(0, dp(2), 0, dp(6))
+        }
+        val copyBtn = Button(this).apply {
+            text = "📋 COPY UPI ID"
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0284C7"))
+                cornerRadius = dp(6).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32))
+            setOnClickListener {
+                val clip = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clip.setPrimaryClip(ClipData.newPlainText("UPI ID", "zuauto.vip@oksbi"))
+                Toast.makeText(this@MainActivity, "UPI ID Copied to Clipboard!", Toast.LENGTH_SHORT).show()
+            }
+        }
+        upiBox.addView(upiLabel)
+        upiBox.addView(upiIdTv)
+        upiBox.addView(copyBtn)
+        root.addView(upiBox)
+
+        // UTR Input
+        val utrLabel = TextView(this).apply {
+            text = "ENTER 12-DIGIT UPI / UTR REFERENCE NO:"
+            textSize = 9.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#CBD5E1"))
+            setPadding(0, 0, 0, dp(4))
+        }
+        root.addView(utrLabel)
+
+        val utrInput = EditText(this).apply {
+            hint = "e.g. 428901238491"
+            setHintTextColor(Color.parseColor("#64748B"))
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            background = createNeonBox("#050811", "#00E5FF", 8)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            }
+        }
+        root.addView(utrInput)
+
+        var checkoutDialog: AlertDialog? = null
+
+        val submitBtn = Button(this).apply {
+            text = "SUBMIT PAYMENT PROOF"
+            setTextColor(Color.parseColor("#050811"))
+            typeface = Typeface.DEFAULT_BOLD
+            textSize = 12f
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#10B981"), Color.parseColor("#059669"))
+            ).apply { cornerRadius = dp(10).toFloat() }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44))
+            setOnClickListener {
+                val utr = utrInput.text.toString().trim()
+                if (utr.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "Please enter valid UTR reference number", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                ZuAutoCloudManager.submitPaymentProof(this@MainActivity, plan, utr, "Payment proof via UPI App") { success, msg ->
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                    checkoutDialog?.dismiss()
+                }
+            }
+        }
+        root.addView(submitBtn)
+
+        checkoutDialog = AlertDialog.Builder(this)
+            .setView(root)
+            .setNegativeButton("Cancel", null)
+            .create()
+        checkoutDialog.show()
     }
 
     // ---------------- LICENSE KEY REDEMPTION DIALOG ----------------
