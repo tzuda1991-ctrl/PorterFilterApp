@@ -1749,7 +1749,7 @@ class MainActivity : AppCompatActivity() {
             paint.strokeWidth = 2f
             paint.color = Color.parseColor("#38BDF8")
             canvas.drawRoundRect(w * 0.54f, 10f, w - 10f, 44f, 16f, 16f, paint)
-            paint.style = Paint.FILL
+            paint.style = Paint.Style.FILL
             paint.color = Color.WHITE
             paint.textSize = 17f
             canvas.drawText("🗺️ Live Map", w * 0.58f, 32f, paint)
