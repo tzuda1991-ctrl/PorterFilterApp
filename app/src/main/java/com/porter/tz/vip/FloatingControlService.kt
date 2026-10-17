@@ -35,13 +35,12 @@ class FloatingControlService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
 
-        // Pill-shaped Floating Bar containing: [ON/OFF] [🚀 Porter] [⚙️ App] [✖ Close]
         floatingBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(14, 10, 14, 10)
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#EE0B0F19"))
+                setColor(Color.parseColor("#F2090D16"))
                 cornerRadius = 90f
                 setStroke(3, Color.parseColor("#38BDF8"))
             }
@@ -52,15 +51,14 @@ class FloatingControlService : Service() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setPadding(24, 16, 24, 16)
+            setPadding(24, 14, 24, 14)
         }
 
-        // Direct Porter App Launcher Button
         val openPorterBtn = TextView(this).apply {
             text = "🚀"
-            textSize = 14f
+            textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(18, 14, 18, 14)
+            setPadding(18, 12, 18, 12)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#7C3AED"))
                 cornerRadius = 60f
@@ -70,21 +68,15 @@ class FloatingControlService : Service() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { leftMargin = 8 }
             setOnClickListener {
-                val intent = packageManager.getLaunchIntentForPackage("com.theporter.android.driverapp")
-                if (intent != null) {
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(intent)
-                } else {
-                    Toast.makeText(this@FloatingControlService, "Porter Driver App not found", Toast.LENGTH_SHORT).show()
-                }
+                MainActivity.launchPorterPartnerApp(this@FloatingControlService)
             }
         }
 
         val openAppBtn = TextView(this).apply {
             text = "⚙️"
-            textSize = 14f
+            textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(18, 14, 18, 14)
+            setPadding(18, 12, 18, 12)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#1E293B"))
                 cornerRadius = 60f
@@ -107,7 +99,7 @@ class FloatingControlService : Service() {
             setTextColor(Color.parseColor("#F87171"))
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setPadding(18, 14, 18, 14)
+            setPadding(18, 12, 18, 12)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#1E293B"))
                 cornerRadius = 60f
@@ -144,7 +136,7 @@ class FloatingControlService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = 20
-            y = 320
+            y = 280
         }
 
         var initialX = 0
@@ -205,14 +197,14 @@ class FloatingControlService : Service() {
             statusToggleBtn.background = GradientDrawable().apply {
                 setColor(Color.parseColor("#059669"))
                 cornerRadius = 70f
-                setStroke(3, Color.parseColor("#00F5D4"))
+                setStroke(2, Color.parseColor("#00F5D4"))
             }
         } else {
             statusToggleBtn.text = "💤 ZU OFF"
             statusToggleBtn.background = GradientDrawable().apply {
                 setColor(Color.parseColor("#DC2626"))
                 cornerRadius = 70f
-                setStroke(3, Color.WHITE)
+                setStroke(2, Color.WHITE)
             }
         }
     }

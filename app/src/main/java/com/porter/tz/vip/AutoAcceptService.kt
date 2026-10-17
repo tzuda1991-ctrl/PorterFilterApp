@@ -18,12 +18,26 @@ class AutoAcceptService : AccessibilityService() {
 
     data class NodeItem(val text: String, val bounds: Rect)
 
+    private val areaAliases = mapOf(
+        "krishnarajapuram" to listOf("krishnarajapuram", "kr puram", "k r puram", "k.r.puram", "k.r. puram", "medahalli", "battarahalli", "tc palya", "devasandra", "kithaganur", "kittaganuru", "560036", "560049"),
+        "electronic city" to listOf("electronic city", "electronics city", "e-city", "konappana agrahara", "veerasandra", "560100"),
+        "whitefield" to listOf("whitefield", "itpl", "kadugodi", "pattandur agrahara", "immadihalli", "560066"),
+        "yelahanka" to listOf("yelahanka", "jakkur", "kogilu", "attur", "560064"),
+        "hoodi" to listOf("hoodi", "mahadevapura", "garudacharpalya", "560048"),
+        "hebbal" to listOf("hebbal", "kempapura", "guddadahalli", "kodigehalli", "560024"),
+        "koramangala" to listOf("koramangala", "ejipura", "jakkasandra", "560034", "560095"),
+        "indiranagar" to listOf("indiranagar", "indira nagar", "domlur", "hal 2nd stage", "560038"),
+        "hsr layout" to listOf("hsr layout", "h.s.r", "agara", "mangammanapalya", "haralur", "560102"),
+        "btm layout" to listOf("btm layout", "b.t.m", "madiwala", "tavarekere", "560029", "560076"),
+        "peenya" to listOf("peenya", "dasarahalli", "jalahalli", "nelagadaranahalli", "560058"),
+        "bommasandra" to listOf("bommasandra", "jigani", "chandapura", "attibele", "560099")
+    )
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val prefs = getSharedPreferences("PorterVipPrefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("BOT_ACTIVE", true)) return
 
         val currentTime = System.currentTimeMillis()
-        // एक बार स्वाइप करने के बाद 5 सेकंड का कूलडाउन ताकि ऑर्डर खुलते समय दोबारा स्वाइप न करे
         if (currentTime - lastSwipeTime < 5000) return
 
         val metrics = resources.displayMetrics
@@ -34,21 +48,19 @@ class AutoAcceptService : AccessibilityService() {
             for (win in windowList) {
                 val root = win.root ?: continue
                 val pkg = root.packageName?.toString() ?: ""
-                if (pkg != "com.theporter.android.driverapp") continue
+                if (!pkg.contains("porter", ignoreCase = true) || pkg == packageName) continue
                 collectVisibleNodes(root, nodes, metrics.widthPixels, metrics.heightPixels)
             }
         } else {
             val root = rootInActiveWindow ?: return
             val pkg = root.packageName?.toString() ?: ""
-            if (pkg != "com.theporter.android.driverapp") return
+            if (!pkg.contains("porter", ignoreCase = true) || pkg == packageName) return
             collectVisibleNodes(root, nodes, metrics.widthPixels, metrics.heightPixels)
         }
 
         if (nodes.isEmpty()) return
 
-        // 🛡️ 1. ANTI-GHOST SWIPE GUARD:
-        // अगर ऑर्डर पहले ही एक्सेप्ट हो चुका है और स्क्रीन पर 'Start Trip', 'Cancel Trip', या 'Cash to Collect' दिख रहा है,
-        // तो बिल्कुल भी स्वाइप न करे!
+        // 1. Active Trip Screen Guard (No Ghost Swipes after order is accepted)
         val isOnActiveTripScreen = nodes.any {
             val t = it.text
             t.contains("Start Trip", ignoreCase = true) ||
@@ -60,7 +72,7 @@ class AutoAcceptService : AccessibilityService() {
         }
         if (isOnActiveTripScreen) return
 
-        // 🎯 2. 'Accept' या 'Swipe to Accept' बटन ढूंढें (जो स्क्रीन के बीच वाले हिस्से में हो)
+        // 2. Locate 'Accept' or 'Swipe to Accept' Button
         val acceptNode = nodes.firstOrNull {
             val t = it.text.trim()
             val validText = t.equals("Accept", ignoreCase = true) || t.contains("Swipe to Accept", ignoreCase = true)
@@ -70,7 +82,7 @@ class AutoAcceptService : AccessibilityService() {
 
         val acceptCenterY = acceptNode.bounds.centerY()
 
-        // 💰 3. ऊपर लिखे असली ऑर्डर किराए (जैसे ₹204 या ₹113) को ढूंढें
+        // 3. Strictly Detect Top Order Fare Only (e.g. ₹113, ₹204)
         var detectedOrderFare: Int? = null
         var fareBottomY = 0
         var topMostY = Int.MAX_VALUE
@@ -92,12 +104,14 @@ class AutoAcceptService : AccessibilityService() {
             }
         }
 
+        val kmRegex = Regex("""\(\s*\d+(?:\.\d+)?\s*km\s*\)""", RegexOption.IGNORE_CASE)
+
         if (detectedOrderFare == null) {
-            val kmNodeY = nodes.filter { it.text.contains("km)", ignoreCase = true) }
+            val firstKmTopY = nodes.filter { kmRegex.containsMatchIn(it.text) }
                 .minOfOrNull { it.bounds.top } ?: acceptCenterY
 
             for (item in nodes) {
-                if (item.bounds.centerY() < kmNodeY) {
+                if (item.bounds.centerY() < firstKmTopY) {
                     val cleanText = item.text.replace("₹", "").replace(",", "").trim()
                     val match = pureNumberRegex.find(cleanText)
                     if (match != null) {
@@ -112,67 +126,109 @@ class AutoAcceptService : AccessibilityService() {
             }
         }
 
-        // अगर पॉपअप पर ऊपर किराया नहीं मिला, तो यह असली ऑर्डर पॉपअप नहीं है
         val orderFare = detectedOrderFare ?: return
 
-        // ☑️ 4. MINIMUM FARE CHECK (अगर चेकबॉक्स ON है तभी किराया चेक करे, OFF है तो कोई भी किराया पास करे)
+        // 4. Minimum Fare Check (if enabled)
         val useFareFilter = prefs.getBoolean("USE_FARE_FILTER", true)
         if (useFareFilter) {
-            val minFare = prefs.getInt("MIN_FARE", 150)
+            val minFare = prefs.getInt("MIN_FARE", 200)
             if (orderFare < minFare) return
         }
 
-        // 📍 5. SEPARATE PICKUP vs DROP LOCATION DETECTION
-        // पॉपअप में किराए (₹204) के नीचे और 'Accept' बटन के ऊपर दो लोकेशन होती हैं:
-        // ऊपर वाला आधे हिस्से में Pickup होता है, और नीचे वाले आधे हिस्से में Drop होता है!
+        // 5. Strict Separation of Pickup Block (Header + Full Address) vs Drop Block (Header + Full Address)
         val locationNodes = nodes.filter {
-            it.bounds.top >= fareBottomY - 10 &&
-            it.bounds.bottom <= acceptNode.bounds.top + 10
-        }.sortedBy { it.bounds.top }
+            it.bounds.top >= fareBottomY - 15 &&
+            it.bounds.bottom <= acceptNode.bounds.top + 15
+        }.sortedWith(compareBy({ it.bounds.top }, { it.bounds.left }))
 
-        // "(2.1 km)" और "(17.5 km)" जैसे हेडर ढूंढकर Pickup और Drop की सटीक बाउंड्री बनाएं
-        val kmHeaders = locationNodes.filter { it.text.contains("km)", ignoreCase = true) }
+        val kmAnchorNodes = locationNodes.filter { kmRegex.containsMatchIn(it.text) }
+            .sortedBy { it.bounds.top }
 
-        val splitY = if (kmHeaders.size >= 2) {
-            kmHeaders[1].bounds.top - 5
+        val pickupFullBlock: String
+        val dropFullBlock: String
+
+        if (kmAnchorNodes.size >= 2) {
+            val dropStartY = kmAnchorNodes[1].bounds.top - 8
+            pickupFullBlock = locationNodes
+                .filter { it.bounds.centerY() < dropStartY }
+                .joinToString(" ") { it.text }
+
+            dropFullBlock = locationNodes
+                .filter { it.bounds.centerY() >= dropStartY }
+                .joinToString(" ") { it.text }
+        } else if (locationNodes.size >= 2) {
+            val midIndex = locationNodes.size / 2
+            pickupFullBlock = locationNodes.subList(0, midIndex).joinToString(" ") { it.text }
+            dropFullBlock = locationNodes.subList(midIndex, locationNodes.size).joinToString(" ") { it.text }
         } else {
-            (fareBottomY + acceptNode.bounds.top) / 2
+            val singleText = locationNodes.joinToString(" ") { it.text }
+            val lines = singleText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            val half = (lines.size / 2).coerceAtLeast(1)
+            pickupFullBlock = lines.take(half).joinToString(" ")
+            dropFullBlock = lines.drop(half).joinToString(" ")
         }
 
-        val pickupTexts = locationNodes.filter { it.bounds.top < splitY }.joinToString(" ") { it.text }
-        val dropTexts = locationNodes.filter { it.bounds.top >= splitY }.joinToString(" ") { it.text }
-
-        // Pickup Check
+        // Check Pickup Zone (if enabled)
         val usePickupFilter = prefs.getBoolean("USE_PICKUP_FILTER", false)
-        val pickupQuery = prefs.getString("PICKUP_FILTER", "")?.trim() ?: ""
-        if (usePickupFilter && pickupQuery.isNotEmpty()) {
-            val queries = pickupQuery.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            val matchPickup = queries.any { q -> pickupTexts.contains(q, ignoreCase = true) }
-            if (!matchPickup) return
+        val pickupQueryStr = prefs.getString("PICKUP_FILTER", "")?.trim() ?: ""
+        if (usePickupFilter && pickupQueryStr.isNotEmpty()) {
+            val selectedPickups = pickupQueryStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val matchedPickup = selectedPickups.any { areaName ->
+                matchesAreaInAddressBlock(pickupFullBlock, areaName)
+            }
+            if (!matchedPickup) return
         }
 
-        // Drop Check (जैसे: Krishnarajapuram सिर्फ Drop में ही चेक होगा!)
+        // Check Drop Zone (if enabled)
         val useDropFilter = prefs.getBoolean("USE_DROP_FILTER", false)
-        val dropQuery = prefs.getString("DROP_FILTER", "")?.trim() ?: ""
-        if (useDropFilter && dropQuery.isNotEmpty()) {
-            val queries = dropQuery.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            val matchDrop = queries.any { q -> dropTexts.contains(q, ignoreCase = true) }
-            if (!matchDrop) return
+        val dropQueryStr = prefs.getString("DROP_FILTER", "")?.trim() ?: ""
+        if (useDropFilter && dropQueryStr.isNotEmpty()) {
+            val selectedDrops = dropQueryStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val matchedDrop = selectedDrops.any { areaName ->
+                matchesAreaInAddressBlock(dropFullBlock, areaName)
+            }
+            if (!matchedDrop) return
         }
 
-        // 🚀 6. सारी शर्तें पूरी हुईं! चुनी गई स्पीड (Quick / Normal / Human) से स्वाइप करें
+        // 6. Execute Swipe at Selected Velocity
         val speedMode = prefs.getString("SWIPE_SPEED", "NORMAL") ?: "NORMAL"
         lastSwipeTime = currentTime
 
         mainHandler.post {
             Toast.makeText(
                 applicationContext,
-                "⚡ Order ₹$orderFare Accepted! ($speedMode)",
+                "⚡ ZU Smart: ₹$orderFare Accepted ($speedMode)",
                 Toast.LENGTH_SHORT
             ).show()
         }
 
         performSpeedSlide(acceptNode.bounds, speedMode)
+    }
+
+    private fun matchesAreaInAddressBlock(addressBlock: String, selectedArea: String): Boolean {
+        if (addressBlock.isBlank() || selectedArea.isBlank()) return false
+
+        val normalizedBlock = addressBlock.lowercase()
+            .replace(".", " ")
+            .replace("-", " ")
+            .replace(",", " ")
+            .replace(Regex("""\s+"""), " ")
+
+        val cleanAreaKey = selectedArea.lowercase().trim()
+
+        if (normalizedBlock.contains(cleanAreaKey)) return true
+
+        val aliases = areaAliases[cleanAreaKey]
+        if (aliases != null) {
+            for (alias in aliases) {
+                val normalizedAlias = alias.lowercase().replace(".", " ").replace("-", " ").trim()
+                if (normalizedBlock.contains(normalizedAlias)) {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     private fun collectVisibleNodes(
@@ -211,9 +267,9 @@ class AutoAcceptService : AccessibilityService() {
         val endX = metrics.widthPixels * 0.74f
 
         val (delayMs, durationMs, curveOffset) = when (speedMode) {
-            "QUICK" -> Triple(20L, 150L, 0f)     // 150ms Super Fast
-            "HUMAN" -> Triple(140L, 550L, 6f)    // 550ms Natural Human-like
-            else -> Triple(60L, 320L, 2f)        // 320ms Balanced Normal
+            "QUICK" -> Triple(20L, 150L, 0f)
+            "HUMAN" -> Triple(140L, 550L, 6f)
+            else -> Triple(60L, 320L, 2f)
         }
 
         val path = Path().apply {

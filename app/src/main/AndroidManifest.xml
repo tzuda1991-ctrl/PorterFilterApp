@@ -4,12 +4,22 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <queries>
+        <package android:name="com.theporter.android.driverapp" />
+        <package android:name="com.theporter.android.partnerapp" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_vip_logo"
         android:roundIcon="@drawable/ic_vip_logo"
-        android:label="Porter TZ VIP"
+        android:label="ZU Smart"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.NoActionBar">
 
