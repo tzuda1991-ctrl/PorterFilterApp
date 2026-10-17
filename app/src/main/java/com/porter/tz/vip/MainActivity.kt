@@ -105,7 +105,7 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // ================= 1. HEADER CARD (Auto-Wrap Height so text never clips) =================
+        // ================= 1. HEADER CARD (Auto-Wrap so text never clips) =================
         val headerCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(12))
@@ -129,7 +129,7 @@ class MainActivity : AppCompatActivity() {
 
         val logoImg = ImageView(this).apply {
             setImageResource(R.drawable.ic_vip_logo)
-            layoutParams = LinearLayout.LayoutParams(dp(38), dp(38)).apply { rightMargin = dp(12) }
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { rightMargin = dp(12) }
         }
 
         val brandCol = LinearLayout(this).apply {
@@ -139,7 +139,7 @@ class MainActivity : AppCompatActivity() {
 
         val brandName = TextView(this).apply {
             text = "ZU Smart"
-            textSize = 18f
+            textSize = 19f
             setTextColor(Color.WHITE)
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
         }

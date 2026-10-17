@@ -64,7 +64,6 @@ class AutoAcceptService : AccessibilityService() {
 
         if (nodes.isEmpty()) return
 
-        // 1. Active Trip Guard (No ghost swipes after accepting order)
         for (item in nodes) {
             val t = item.text
             if (t.contains("Start Trip", ignoreCase = true) ||
@@ -77,7 +76,6 @@ class AutoAcceptService : AccessibilityService() {
             }
         }
 
-        // 2. Find 'Accept' or 'Swipe to Accept' Button
         var targetAcceptNode: NodeItem? = null
         val minY = (metrics.heightPixels * 0.25).toInt()
         val maxY = (metrics.heightPixels * 0.80).toInt()
@@ -92,7 +90,6 @@ class AutoAcceptService : AccessibilityService() {
         val acceptNode = targetAcceptNode ?: return
         val acceptCenterY = acceptNode.bounds.centerY()
 
-        // 3. Detect Top Order Fare Only
         var detectedOrderFare: Int? = null
         var fareBottomY = 0
         var topMostY = Int.MAX_VALUE
@@ -141,7 +138,6 @@ class AutoAcceptService : AccessibilityService() {
 
         val orderFare = detectedOrderFare ?: return
 
-        // 4. Separate Pickup Block (Header + Address) vs Drop Block (Header + Address)
         val locationNodes = nodes.filter {
             it.bounds.top >= fareBottomY - 15 &&
             it.bounds.bottom <= acceptNode.bounds.top + 15
@@ -169,9 +165,6 @@ class AutoAcceptService : AccessibilityService() {
             dropFullBlock = lines.drop(half).joinToString(" ")
         }
 
-        // 5. EXCLUSIVE FILTER DECISION ENGINE:
-        // Rule A: If Pickup or Drop Filter is ON -> Ignore Fare completely and match strictly by Zone!
-        // Rule B: If Fare Filter is ON (and Zones OFF) -> Match strictly by Minimum Fare!
         val usePickupFilter = prefs.getBoolean("USE_PICKUP_FILTER", false)
         val pickupQueryStr = prefs.getString("PICKUP_FILTER", "")?.trim() ?: ""
 
@@ -212,7 +205,6 @@ class AutoAcceptService : AccessibilityService() {
             }
         }
 
-        // 6. Swipe at Selected Velocity
         val speedMode = prefs.getString("SWIPE_SPEED", "QUICK") ?: "QUICK"
         lastSwipeTime = currentTime
 
