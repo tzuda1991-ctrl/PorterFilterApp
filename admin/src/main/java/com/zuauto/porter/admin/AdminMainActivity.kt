@@ -473,7 +473,7 @@ class AdminMainActivity : AppCompatActivity() {
             for (driver in matches) {
                 itemsCol.addView(TextView(this).apply {
                     val status = if (driver.status.equals("active", true)) "Active" else "Blocked"
-                    text = "${driver.name}   ›\n${driver.phone} · ${driver.city}\n$status · ${driver.plan}"
+                    text = "${driver.name}   ›\n${driver.phone} · ${driver.city}\n$status · ${driver.plan}\n${driverValidity(driver)}"
                     textSize = 14f
                     setTextColor(Color.WHITE)
                     setPadding(dp(14), dp(12), dp(14), dp(12))
@@ -501,19 +501,22 @@ class AdminMainActivity : AppCompatActivity() {
         contentFrame.addView(col)
     }
 
+    private fun driverValidity(driver: AdminCloudService.DriverItem): String {
+        val expiry = runCatching { java.time.Instant.parse(driver.planExpiresAt) }.getOrNull()
+            ?: return "Expiry unavailable"
+        val date = java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, h:mm a")
+            .withZone(java.time.ZoneId.systemDefault()).format(expiry)
+        return if (expiry.isAfter(java.time.Instant.now())) "Valid until $date" else "Expired on $date"
+    }
+
     private fun showDriverDetails(driver: AdminCloudService.DriverItem) {
         val blocked = !driver.status.equals("active", true)
-        val expiry = runCatching {
-            java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, h:mm a")
-                .withZone(java.time.ZoneId.systemDefault())
-                .format(java.time.Instant.parse(driver.planExpiresAt))
-        }.getOrDefault("Unavailable")
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(10), dp(18), dp(10))
         }
         panel.addView(TextView(this).apply {
-            text = "Driver ID: ${driver.uid}\nPhone: ${driver.phone}\nCity: ${driver.city}\nVehicle: ${driver.vehicle}\nStatus: ${if (blocked) "Blocked" else "Active"}\nPlan: ${driver.plan}\nValid until: $expiry"
+            text = "Driver ID: ${driver.uid}\nPhone: ${driver.phone}\nCity: ${driver.city}\nVehicle: ${driver.vehicle}\nStatus: ${if (blocked) "Blocked" else "Active"}\nPlan: ${driver.plan}\n${driverValidity(driver)}"
             textSize = 15f
             setPadding(0, 0, 0, dp(12))
         })

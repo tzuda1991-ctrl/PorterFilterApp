@@ -164,7 +164,7 @@ object AdminCloudService {
                         val vehicle = f.optJSONObject("vehicle")?.optString("stringValue", "Porter") ?: "Porter"
                         val status = f.optJSONObject("status")?.optString("stringValue", "active") ?: "active"
                         val plan = f.optJSONObject("planName")?.optString("stringValue", "VIP") ?: "VIP"
-                        val exp = f.optJSONObject("validUntil")?.optString("stringValue", "") ?: ""
+                        val exp = driverExpiry(f)
                         list.add(DriverItem(uid, name, phone, city, vehicle, status, plan, exp))
                     }
                 }
@@ -173,6 +173,15 @@ object AdminCloudService {
         }
     }
 
+
+    private fun driverExpiry(fields: JSONObject): String {
+        for (key in listOf("validUntil", "planExpiresAt")) {
+            val field = fields.optJSONObject(key) ?: continue
+            val expiry = field.optString("timestampValue").ifBlank { field.optString("stringValue") }
+            if (runCatching { java.time.Instant.parse(expiry) }.isSuccess) return expiry
+        }
+        return ""
+    }
 
     fun updateDriverStatus(uid: String, status: String, callback: (Boolean) -> Unit) =
         changeDriver(uid, mapOf("status" to status), callback)
@@ -209,8 +218,7 @@ object AdminCloudService {
                     snapshot.disconnect()
                 }
                 if (expectedExpiry != null) {
-                    val expiry = document.getJSONObject("fields").optJSONObject("validUntil")
-                        ?.optString("stringValue").orEmpty()
+                    val expiry = driverExpiry(document.getJSONObject("fields"))
                     check(expiry == expectedExpiry) { "Driver validity changed. Refresh and retry." }
                 }
                 val updateTime = android.net.Uri.encode(document.getString("updateTime"))
