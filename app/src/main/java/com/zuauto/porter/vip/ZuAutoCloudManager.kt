@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONArray
+import com.zu.auth.PaymentSettings
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -59,7 +60,7 @@ object ZuAutoCloudManager {
         val description: String
     )
 
-    fun fetchPaymentSettings(callback: (String?, String?) -> Unit) {
+    fun fetchPaymentSettings(callback: (PaymentSettings?) -> Unit) {
         executor.execute {
             val result = runCatching {
                 val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY")
@@ -70,13 +71,12 @@ object ZuAutoCloudManager {
                     val fields = connection.inputStream.bufferedReader().use {
                         JSONObject(it.readText()).getJSONObject("fields")
                     }
-                    fields.getJSONObject("upiId").getString("stringValue") to
-                        fields.optJSONObject("qrUrl")?.optString("stringValue").orEmpty()
+                    PaymentSettings.fromFirestore(fields)
                 } finally {
                     connection.disconnect()
                 }
             }.getOrNull()
-            mainHandler.post { callback(result?.first, result?.second) }
+            mainHandler.post { callback(result) }
         }
     }
 

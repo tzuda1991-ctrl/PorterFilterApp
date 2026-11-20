@@ -1177,7 +1177,13 @@ class AdminMainActivity : AppCompatActivity() {
         }
         val upi = EditText(this).apply { hint = "UPI ID" }
         val qr = EditText(this).apply { hint = "Custom QR image URL (HTTPS)" }
+        val showUpi = Switch(this).apply {
+            text = "Show UPI ID in checkout"
+            isChecked = true
+            minHeight = dp(48)
+        }
         form.addView(upi)
+        form.addView(showUpi)
         form.addView(qr)
         form.addView(TextView(this).apply {
             text = "Leave blank to generate a QR from the saved UPI ID and plan amount."
@@ -1185,15 +1191,17 @@ class AdminMainActivity : AppCompatActivity() {
         })
         val dialog = AlertDialog.Builder(this)
             .setTitle("Payment settings")
-            .setView(form)
+            .setView(ScrollView(this).apply { addView(form) })
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save", null)
             .show()
         val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
         save.isEnabled = false
-        AdminCloudService.fetchPaymentSettings { id, url ->
-            upi.setText(id.orEmpty())
-            qr.setText(url.orEmpty())
+        AdminCloudService.fetchPaymentSettings { settings ->
+            if (!dialog.isShowing) return@fetchPaymentSettings
+            upi.setText(settings?.upiId.orEmpty())
+            qr.setText(settings?.qrUrl.orEmpty())
+            showUpi.isChecked = settings?.showUpiId ?: true
             save.isEnabled = true
         }
         save.setOnClickListener {
@@ -1206,7 +1214,7 @@ class AdminMainActivity : AppCompatActivity() {
                 qr.error = "Enter an HTTPS image URL"
             } else {
                 save.isEnabled = false
-                AdminCloudService.savePaymentSettings(id, url) { success ->
+                AdminCloudService.savePaymentSettings(com.zu.auth.PaymentSettings(id, url, showUpi.isChecked)) { success ->
                     save.isEnabled = true
                     if (success) dialog.dismiss()
                     Toast.makeText(this, if (success) "Payment settings saved" else "Save failed", Toast.LENGTH_SHORT).show()

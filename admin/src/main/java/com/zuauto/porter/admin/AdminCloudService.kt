@@ -3,6 +3,7 @@ package com.zuauto.porter.admin
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONArray
+import com.zu.auth.PaymentSettings
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -97,10 +98,10 @@ object AdminCloudService {
     )
 
     // ---------------- FETCH DRIVERS VIA RUNQUERY ----------------
-    fun savePaymentSettings(upiId: String, qrUrl: String, callback: (Boolean) -> Unit) {
+    fun savePaymentSettings(settings: PaymentSettings, callback: (Boolean) -> Unit) {
         executor.execute {
             val saved = runCatching {
-                val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY")
+                val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY&updateMask.fieldPaths=upiId&updateMask.fieldPaths=qrUrl&updateMask.fieldPaths=showUpiId")
                     .openAuthorizedConnection()
                 try {
                     connection.requestMethod = "PATCH"
@@ -109,8 +110,9 @@ object AdminCloudService {
                     connection.doOutput = true
                     connection.setRequestProperty("Content-Type", "application/json")
                     val fields = JSONObject()
-                        .put("upiId", JSONObject().put("stringValue", upiId))
-                        .put("qrUrl", JSONObject().put("stringValue", qrUrl))
+                        .put("upiId", JSONObject().put("stringValue", settings.upiId))
+                        .put("qrUrl", JSONObject().put("stringValue", settings.qrUrl))
+                        .put("showUpiId", JSONObject().put("booleanValue", settings.showUpiId))
                     connection.outputStream.bufferedWriter().use {
                         it.write(JSONObject().put("fields", fields).toString())
                     }
@@ -123,7 +125,7 @@ object AdminCloudService {
         }
     }
 
-    fun fetchPaymentSettings(callback: (String?, String?) -> Unit) {
+    fun fetchPaymentSettings(callback: (PaymentSettings?) -> Unit) {
         executor.execute {
             val result = runCatching {
                 val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY")
@@ -134,13 +136,12 @@ object AdminCloudService {
                     val fields = connection.inputStream.bufferedReader().use {
                         JSONObject(it.readText()).getJSONObject("fields")
                     }
-                    fields.getJSONObject("upiId").getString("stringValue") to
-                        fields.optJSONObject("qrUrl")?.optString("stringValue").orEmpty()
+                    PaymentSettings.fromFirestore(fields)
                 } finally {
                     connection.disconnect()
                 }
             }.getOrNull()
-            mainHandler.post { callback(result?.first, result?.second) }
+            mainHandler.post { callback(result) }
         }
     }
 

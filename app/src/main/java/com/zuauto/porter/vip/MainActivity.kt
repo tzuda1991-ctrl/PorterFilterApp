@@ -1041,17 +1041,7 @@ class MainActivity : AppCompatActivity() {
             }
             addBottomItem("Trips", R.drawable.ic_dashboard_trips) { showOrderHistoryDialog() }
             addBottomItem("Profile", R.drawable.ic_dashboard_profile) { showDriverProfileAndValidityDialog() }
-            addBottomItem("More", R.drawable.ic_dashboard_more) { anchor ->
-                PopupMenu(this, anchor).apply {
-                    navActions.keys.filter { it != "Home" && it != "History" }
-                        .forEach { this.menu.add(it) }
-                    setOnMenuItemClickListener { item ->
-                        navActions[item.title.toString()]?.invoke()
-                        true
-                    }
-                    show()
-                }
-            }
+            addBottomItem("More", R.drawable.ic_dashboard_more) { showMoreActions(navActions) }
             masterRoot.addView(bottomNav, LinearLayout.LayoutParams(match, wrap))
         }
         setContentView(masterRoot)
@@ -1060,6 +1050,46 @@ class MainActivity : AppCompatActivity() {
         accountListener = ZuAutoCloudManager.monitorAccount(this, onRestored = {
             if (lockReason == "expired" && !isFinishing && !isDestroyed) recreate()
         }, onRestricted = ::lockDriverAccess)
+    }
+
+    private fun showMoreActions(actions: Map<String, () -> Unit>) {
+        if (accessLocked) return
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("More")
+            .setView(ScrollView(this).apply { addView(panel) })
+            .setNegativeButton("Close", null)
+            .create()
+        val items = listOf(
+            Triple("Porter", "Open Porter Partner", R.drawable.ic_dashboard_porter),
+            Triple("Support", "Contact support", android.R.drawable.ic_menu_call),
+            Triple("Settings", "Accessibility settings", R.drawable.ic_dashboard_setup),
+            Triple("Update", "Check for updates", android.R.drawable.ic_popup_sync)
+        )
+        items.forEach { (key, label, icon) ->
+            val action = actions[key] ?: return@forEach
+            panel.addView(Button(this).apply {
+                text = label
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                setPadding(dp(14), dp(8), dp(12), dp(8))
+                isAllCaps = false
+                minimumHeight = dp(52)
+                val drawable = context.getDrawable(icon)?.mutate()?.apply {
+                    setBounds(0, 0, dp(22), dp(22))
+                    setTint(Color.parseColor("#E9C475"))
+                }
+                setCompoundDrawablesRelative(drawable, null, null, null)
+                compoundDrawablePadding = dp(12)
+                setOnClickListener {
+                    dialog.dismiss()
+                    if (!accessLocked) action()
+                }
+            }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        }
+        dialog.show()
     }
 
     private fun openExternalAction(intent: Intent, unavailable: String) {
@@ -1729,17 +1759,19 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- UPI CHECKOUT & UTR PROOF SUBMISSION DIALOG ----------------
     private fun showUpiCheckoutDialog(plan: ZuAutoCloudManager.SubscriptionPlan) {
-        ZuAutoCloudManager.fetchPaymentSettings { upiId, qrUrl ->
+        ZuAutoCloudManager.fetchPaymentSettings { settings ->
             if ((accessLocked && lockReason != "expired") || isFinishing || isDestroyed) return@fetchPaymentSettings
-            if (upiId.isNullOrBlank()) {
+            if (settings == null || settings.upiId.isBlank()) {
                 Toast.makeText(this, "Payment settings unavailable. Try again later.", Toast.LENGTH_LONG).show()
             } else {
-                renderUpiCheckout(plan, upiId, qrUrl.orEmpty())
+                renderUpiCheckout(plan, settings)
             }
         }
     }
 
-    private fun renderUpiCheckout(plan: ZuAutoCloudManager.SubscriptionPlan, upiId: String, qrUrl: String) {
+    private fun renderUpiCheckout(plan: ZuAutoCloudManager.SubscriptionPlan, settings: com.zu.auth.PaymentSettings) {
+        val upiId = settings.upiId
+        val qrUrl = settings.qrUrl
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.TRANSPARENT)
@@ -1806,7 +1838,7 @@ class MainActivity : AppCompatActivity() {
         upiBox.addView(upiLabel)
         upiBox.addView(upiIdTv)
         upiBox.addView(copyBtn)
-        root.addView(upiBox)
+        if (settings.showUpiId) root.addView(upiBox)
         val paymentUri = Uri.Builder()
             .scheme("upi")
             .authority("pay")
@@ -1842,7 +1874,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (!isDestroyed) {
                     qrImage.setImageBitmap(generated)
-                    if (generated == null) qrNote.text = "QR unavailable. Use Pay now or copy the UPI ID."
+                    if (generated == null) qrNote.text = "QR unavailable. Use Pay now."
                 }
             }
             val customUri = Uri.parse(qrUrl)
@@ -1898,7 +1930,7 @@ class MainActivity : AppCompatActivity() {
             minimumHeight = dp(48)
             setOnClickListener {
                 openExternalAction(Intent.createChooser(Intent(Intent.ACTION_VIEW, paymentUri), "Choose a UPI app"),
-                    "No UPI app found. Use the QR or copy the UPI ID.")
+                    "No UPI app found. Scan the QR on another phone.")
             }
         })
 
