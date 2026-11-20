@@ -69,7 +69,7 @@ const prompts = {
     push_plan: "Plan ID", plan_visibility: "Plan ID | on/off",
     generate_keys: "Plan name | validity in days | quantity (1–30)",
     add_city: "City name", remove_city: "City name", areas: "City name | page (optional)",
-    new_area: "City | area name | PINs", save_area: "City | old area name | new area name | PINs",
+    new_area: "City | area name | PINs\nA missing city can be added at the same time.", save_area: "City | old area name | new area name | PINs",
     remove_area: "City | area name",
     order: "Order ID", alert: "Notification ID",
     support: "Phone with country code | WhatsApp number with country code",

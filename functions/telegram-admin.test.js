@@ -136,3 +136,25 @@ test("review and confirmation targets preserve the payment page", async () => {
     assert.equal(review.markup.inline_keyboard[0][1].callback_data, "zu_approve:3:" + id);
     assert.equal(review.markup.inline_keyboard.at(-1)[0].callback_data, "zu_payments:3");
 });
+
+test("adding an area for a missing city saves the city and area together", async () => {
+    const { service, tx, writes } = storage({});
+    const result = await service.write(tx, "save_area", ["Dhoraji", "new", "Baharpura", "360410"]);
+    assert.match(result, /City added to the driver dropdown/);
+    assert.ok(writes[0].values.cities.includes("Dhoraji"));
+    assert.ok(writes[0].values.cities.includes("Bengaluru"));
+    assert.deepEqual(writes[1], { ref: "area_catalog/Dhoraji", values: { areas: { Baharpura: "360410" } } });
+});
+
+test("area additions use the saved spelling of the city and avoid duplicate cities", async () => {
+    const { service, tx, writes } = storage({ "app_config/driver_cities": { cities: ["Dhoraji"] } });
+    await service.write(tx, "save_area", ["dhoraji", "new", "Baharpura", "360410"]);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].ref, "area_catalog/Dhoraji");
+});
+
+test("invalid PIN stops the city and area from being added", async () => {
+    const { service, tx, writes } = storage({});
+    await assert.rejects(service.write(tx, "save_area", ["Dhoraji", "new", "Baharpura", "123"]), /six-digit/);
+    assert.equal(writes.length, 0);
+});

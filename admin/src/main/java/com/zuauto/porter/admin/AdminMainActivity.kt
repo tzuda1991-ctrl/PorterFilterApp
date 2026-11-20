@@ -1329,7 +1329,8 @@ class AdminMainActivity : AppCompatActivity() {
         }
         form.addView(enabled)
         val notify = CheckBox(this).apply {
-            text = "Push notification to drivers"
+            text = "Send push notification to drivers"
+            isChecked = plan == null && enabled.isChecked
             isEnabled = enabled.isChecked
         }
         enabled.setOnCheckedChangeListener { _, active ->
@@ -1373,7 +1374,9 @@ class AdminMainActivity : AppCompatActivity() {
                         if (!dialog.isShowing) return@addOnCompleteListener
                         save.isEnabled = true
                         if (it.isSuccessful) {
-                            if (shouldNotify) Toast.makeText(this, "Plan saved and push queued.", Toast.LENGTH_LONG).show()
+                            val result = if (shouldNotify) "Plan saved. Push queued for drivers."
+                                else "Plan saved without a push notification."
+                            Toast.makeText(this, result, Toast.LENGTH_LONG).show()
                             dialog.dismiss()
                             showPlanManagement()
                         } else {

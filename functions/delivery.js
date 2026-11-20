@@ -49,7 +49,7 @@ function createDelivery(db, telegramSecret, logger = console) {
         const tokens = [...devices.keys()];
         if (tokens.length === 0) {
             logger.warn("No eligible FCM devices; check notification registration and Firestore rules", {
-                audience: notice.audience, targeted: Boolean(notice.uid),
+                audience: notice.audience, action: notice.action, targeted: Boolean(notice.uid),
             });
             return;
         }
@@ -77,13 +77,13 @@ function createDelivery(db, telegramSecret, logger = console) {
                         if ((await transaction.get(ref)).get("token") === token) transaction.delete(ref);
                     });
                 } else {
-                    logger.warn("FCM device delivery failed", { code });
+                    logger.warn("FCM device delivery failed", { code, action: notice.action });
                     retry = true;
                 }
             }));
             if (retry) throw new Error("An FCM batch did not finish.");
         }
-        logger.info("FCM delivery processed", { audience: notice.audience, delivered, devices: tokens.length });
+        logger.info("FCM delivery processed", { audience: notice.audience, action: notice.action, delivered, devices: tokens.length });
     }
 
     async function sendTelegram(text, ignoreDisabled = false) {

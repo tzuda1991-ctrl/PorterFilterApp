@@ -343,11 +343,15 @@ function commands(db) {
         }
         if (command === "save_area" || command === "remove_area") {
             fields(args, command === "save_area" ? 4 : 2);
-            const city = cityName(args[0]);
-            const area = db.collection("area_catalog").doc(city);
-            requireInput(cityList(await tx.get(cityRef)).includes(city), "Choose a city from /cities.");
-            const catalog = { ...areaList(await tx.get(area), city) };
+            const requestedCity = cityName(args[0]);
             const [, original, name, pins] = args;
+            const cities = cityList(await tx.get(cityRef));
+            const existingCity = cities.find(city => city.toLowerCase() === requestedCity.toLowerCase());
+            const addingArea = command === "save_area" && original === "new";
+            requireInput(existingCity || addingArea, "City not found. Open List Cities to check its name.");
+            const city = existingCity ?? requestedCity;
+            const area = db.collection("area_catalog").doc(city);
+            const catalog = { ...areaList(await tx.get(area), city) };
             if (command === "remove_area" || original !== "new") {
                 requireInput(Object.hasOwn(catalog, original), "Area not found.");
                 delete catalog[original];
@@ -360,8 +364,10 @@ function commands(db) {
                 requireInput(codes.every(code => /^\d{6}$/.test(code)), "Enter six-digit PIN codes.");
                 catalog[name] = [...new Set(codes)].join(" ");
             }
+            if (!existingCity) tx.set(cityRef, { cities: [...cities, city] });
             tx.set(area, { areas: catalog });
-            return "Area list updated.";
+            if (command === "remove_area") return original + " removed from " + city + ".";
+            return name + " saved in " + city + "." + (existingCity ? "" : " City added to the driver dropdown.");
         }
         if (command === "support") {
             const [phone, whatsapp] = fields(args, 2).map(optional);
@@ -464,7 +470,11 @@ function startTelegramAdmin(db, token, signal, logger = console) {
             args = [args[0], "new", ...args.slice(1)];
         }
         if (service.writers.has(command)) {
-            await confirmChange(chatId, command, args, "/" + command + " " + args.join(" | "), back);
+            const description = command === "save_area" && args[1] === "new" && args.length === 4
+                ? "Add " + args[2] + " in " + args[0] + (optional(args[3]) ? " · PIN " + args[3] : "") +
+                    ". If this city is missing, it will also be added to the driver dropdown."
+                : "/" + command + " " + args.join(" | ");
+            await confirmChange(chatId, command, args, description, back);
             return;
         }
         const result = await service.read(command, args);
