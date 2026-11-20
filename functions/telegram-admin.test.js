@@ -69,3 +69,36 @@ test("payment buttons copy the full ID and keep review callbacks within Telegram
         { text: "Copy ID", copy_text: { text: longId } },
     ]);
 });
+
+test("inline admin menu exposes all write commands through buttons or key presets", () => {
+    const { renderMenu } = require("./telegram-menu");
+    const { service } = storage({});
+    const visited = new Set();
+    const actions = new Set();
+    function visit(section) {
+        if (visited.has(section)) return;
+        visited.add(section);
+        const menu = renderMenu(section);
+        assert.ok(menu?.text);
+        for (const button of menu.markup.inline_keyboard.flat()) {
+            assert.ok(Buffer.byteLength(button.callback_data) <= 64);
+            const [type, action] = button.callback_data.split(":");
+            if (type === "zu_menu") visit(action);
+            if (type === "zu_run") actions.add(action);
+        }
+    }
+    visit("home");
+    for (const command of service.writers) {
+        assert.ok(actions.has(command === "mirror" ? "mirror_on" : command), command);
+    }
+    assert.ok(actions.has("key_365_30"));
+});
+
+test("copy buttons keep maximum-size batches within Telegram's limit", () => {
+    const { keyResult } = require("./telegram-menu");
+    const keys = Array.from({ length: 30 }, (_, index) => "ZU-" + String(index).padStart(8, "0"));
+    const buttons = keyResult(keys).markup.inline_keyboard.flat().filter(button => button.copy_text);
+    assert.equal(buttons.length, 2);
+    assert.ok(buttons.every(button => button.copy_text.text.length <= 256));
+    assert.deepEqual(buttons.flatMap(button => button.copy_text.text.split("\n")), keys);
+});
