@@ -156,12 +156,6 @@ class MainActivity : AppCompatActivity() {
         val wrap = LinearLayout.LayoutParams.WRAP_CONTENT
         val match = LinearLayout.LayoutParams.MATCH_PARENT
 
-        fun cardParams(weight: Float = 1f) = if (compact) {
-            LinearLayout.LayoutParams(match, wrap)
-        } else {
-            LinearLayout.LayoutParams(0, wrap, weight)
-        }
-
         // MASTER ROOT: Left Navigation Rail + Right Main Cockpit
         val masterRoot = LinearLayout(this).apply {
             orientation = if (compact) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
@@ -577,7 +571,7 @@ class MainActivity : AppCompatActivity() {
         val sideBySideZones = configuration.screenWidthDp >= 350 && configuration.fontScale < 1.3f
         val zonesLeftCol = LinearLayout(this).apply {
             orientation = if (sideBySideZones) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-            baselineAligned = false
+            setBaselineAligned(false)
         }
 
         val pickupBoxCard = LinearLayout(this).apply {
