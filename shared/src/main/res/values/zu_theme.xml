@@ -1,0 +1,23 @@
+<resources>
+    <style name="Theme.ZuSmart" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:alertDialogTheme">@style/Theme.ZuSmart.Dialog</item>
+        <item name="android:buttonStyle">@style/Widget.ZuSmart.Button</item>
+        <item name="android:colorAccent">#E9C475</item>
+    </style>
+
+    <style name="Theme.ZuSmart.Dialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/zu_dialog_window</item>
+        <item name="android:backgroundDimAmount">0.62</item>
+        <item name="android:colorBackground">#111D31</item>
+        <item name="android:colorAccent">#E9C475</item>
+        <item name="android:textColorPrimary">#F4F7FC</item>
+        <item name="android:textColorSecondary">#BBC9DD</item>
+    </style>
+
+    <style name="Widget.ZuSmart.Button" parent="android:style/Widget.Material.Button">
+        <item name="android:background">@drawable/zu_button_background</item>
+        <item name="android:textColor">@color/zu_button_text</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:minHeight">48dp</item>
+    </style>
+</resources>

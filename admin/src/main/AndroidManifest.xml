@@ -10,7 +10,7 @@
         android:roundIcon="@drawable/ic_admin_logo"
         android:label="ZuAuto Admin"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.NoActionBar">
+        android:theme="@style/Theme.ZuSmart">
 
         <activity
             android:name="com.zuauto.porter.admin.AdminMainActivity"

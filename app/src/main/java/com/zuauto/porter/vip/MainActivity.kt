@@ -1503,7 +1503,7 @@ class MainActivity : AppCompatActivity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#070C18"))
+            setBackgroundColor(Color.TRANSPARENT)
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }
 
@@ -1742,15 +1742,15 @@ class MainActivity : AppCompatActivity() {
     private fun renderUpiCheckout(plan: ZuAutoCloudManager.SubscriptionPlan, upiId: String, qrUrl: String) {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#070C18"))
+            setBackgroundColor(Color.TRANSPARENT)
             setPadding(dp(18), dp(16), dp(18), dp(16))
         }
 
         val title = TextView(this).apply {
-            text = "💳 UPI Instant Payment"
-            textSize = 16f
+            text = "UPI checkout"
+            textSize = 21f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#00E5FF"))
+            setTextColor(Color.parseColor("#E9C475"))
         }
         val sub = TextView(this).apply {
             text = "Pay for ${plan.name} (₹${plan.price}) and submit your UTR for admin approval."
@@ -1766,16 +1766,16 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0F172A"))
+                setColor(Color.parseColor("#182841"))
                 cornerRadius = dp(8).toFloat()
-                setStroke(dp(1), Color.parseColor("#334155"))
+                setStroke(dp(1), Color.parseColor("#4F483D"))
             }
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(12)
             }
         }
         val upiLabel = TextView(this).apply {
-            text = "OFFICIAL ADMIN UPI ID:"
+            text = "Pay to UPI ID"
             textSize = 9f
             setTextColor(Color.parseColor("#64748B"))
             typeface = Typeface.DEFAULT_BOLD
@@ -1788,12 +1788,12 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, dp(2), 0, dp(6))
         }
         val copyBtn = Button(this).apply {
-            text = "📋 COPY UPI ID"
+            text = "Copy UPI ID"
             textSize = 10f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0284C7"))
+                setColor(Color.parseColor("#253A58"))
                 cornerRadius = dp(6).toFloat()
             }
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32))
@@ -1893,6 +1893,7 @@ class MainActivity : AppCompatActivity() {
         }.start()
         root.addView(Button(this).apply {
             text = "Pay now · ₹${plan.price}"
+            background = createNeonBox("#243A59", "#A98345", 12)
             isAllCaps = false
             minimumHeight = dp(48)
             setOnClickListener {
@@ -1903,7 +1904,7 @@ class MainActivity : AppCompatActivity() {
 
         // UTR Input
         val utrLabel = TextView(this).apply {
-            text = "ENTER 12-DIGIT UPI / UTR REFERENCE NO:"
+            text = "12-digit payment reference (UTR)"
             textSize = 9.5f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#CBD5E1"))
@@ -1913,11 +1914,15 @@ class MainActivity : AppCompatActivity() {
 
         val utrInput = EditText(this).apply {
             hint = "e.g. 428901238491"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            keyListener = android.text.method.DigitsKeyListener.getInstance("0123456789")
+            filters = arrayOf(android.text.InputFilter.LengthFilter(12))
+            setSingleLine(true)
             setHintTextColor(Color.parseColor("#64748B"))
             setTextColor(Color.WHITE)
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
-            background = createNeonBox("#050811", "#00E5FF", 8)
+            background = createNeonBox("#050811", "#E9C475", 8)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(14)
@@ -1928,19 +1933,20 @@ class MainActivity : AppCompatActivity() {
         var checkoutDialog: AlertDialog? = null
 
         val submitBtn = Button(this).apply {
-            text = "SUBMIT PAYMENT PROOF"
+            text = "Submit payment proof"
             setTextColor(Color.parseColor("#050811"))
             typeface = Typeface.DEFAULT_BOLD
             textSize = 12f
             background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#10B981"), Color.parseColor("#059669"))
+                intArrayOf(Color.parseColor("#F6D897"), Color.parseColor("#D0A350"))
             ).apply { cornerRadius = dp(10).toFloat() }
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44))
             setOnClickListener {
                 val utr = utrInput.text.toString().trim()
-                if (utr.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "Please enter valid UTR reference number", Toast.LENGTH_SHORT).show()
+                if (!ZuAutoCloudManager.isValidUtr(utr)) {
+                    utrInput.error = "Enter exactly 12 digits"
+                    utrInput.requestFocus()
                     return@setOnClickListener
                 }
                 isEnabled = false

@@ -24,7 +24,7 @@
         android:roundIcon="@drawable/ic_vip_logo"
         android:label="ZU Smart"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.NoActionBar">
+        android:theme="@style/Theme.ZuSmart">
 
         <activity
             android:name="com.zuauto.porter.vip.MainActivity"

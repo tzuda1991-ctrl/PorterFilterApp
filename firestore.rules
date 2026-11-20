@@ -78,8 +78,7 @@ service cloud.firestore {
         && request.resource.data.status == 'pending'
         && request.resource.data.id == payment
         && request.resource.data.utrNumber is string
-        && request.resource.data.utrNumber.size() > 0
-        && request.resource.data.utrNumber.size() <= 64
+        && request.resource.data.utrNumber.matches('[0-9]{12}')
         && matchesCatalog(request.resource.data);
     }
 

@@ -441,6 +441,8 @@ object ZuAutoCloudManager {
     }
 
     // ---------------- SUBMIT UPI PAYMENT REQUEST WITH UTR ----------------
+    fun isValidUtr(value: String): Boolean = value.length == 12 && value.all { it in '0'..'9' }
+
     fun submitPaymentProof(
         context: Context,
         plan: SubscriptionPlan,
@@ -448,6 +450,10 @@ object ZuAutoCloudManager {
         proofData: String,
         callback: (Boolean, String) -> Unit
     ) {
+        if (!isValidUtr(utr)) {
+            callback(false, "Enter exactly 12 digits for the UTR.")
+            return
+        }
         val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         val uid = prefs.getString("USER_UID", "DRV-1001") ?: "DRV-1001"
         val driverName = prefs.getString("USER_NAME", "Driver") ?: "Driver"
