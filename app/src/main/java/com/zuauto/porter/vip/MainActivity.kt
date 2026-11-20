@@ -201,22 +201,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (compact) {
-            val menu = Button(this).apply {
-                text = "☰ Menu"
-                setOnClickListener {
-                    PopupMenu(this@MainActivity, this).apply {
-                        navActions.keys.forEach { this.menu.add(it) }
-                        setOnMenuItemClickListener { item ->
-                            navActions[item.title.toString()]?.invoke()
-                            true
-                        }
-                        show()
-                    }
-                }
-            }
-            masterRoot.addView(menu, LinearLayout.LayoutParams(match, wrap))
-        } else {
+        if (!compact) {
             sidebar.addView(menuIcon, 0)
             val navScroll = ScrollView(this).apply { addView(sidebar) }
             masterRoot.addView(navScroll, LinearLayout.LayoutParams(dp(64), match))
@@ -1119,6 +1104,40 @@ class MainActivity : AppCompatActivity() {
         val contentParams = if (compact) LinearLayout.LayoutParams(match, 0, 1f)
             else LinearLayout.LayoutParams(0, match, 1f)
         masterRoot.addView(contentScroll, contentParams)
+        if (compact) {
+            val bottomNav = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(6), dp(3), dp(6), dp(3))
+                background = createNeonBox("#F8FBFF", "#C79838", 14)
+            }
+            fun addBottomItem(label: String, action: (View) -> Unit) {
+                bottomNav.addView(TextView(this).apply {
+                    text = label
+                    textSize = 12f
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                    minimumHeight = dp(48)
+                    setTextColor(Color.parseColor("#10264D"))
+                    setOnClickListener { action(it) }
+                }, LinearLayout.LayoutParams(0, wrap, 1f))
+            }
+            addBottomItem("Home") { contentScroll.smoothScrollTo(0, 0) }
+            addBottomItem("Trips") { showOrderHistoryDialog() }
+            addBottomItem("Profile") { showDriverProfileAndValidityDialog() }
+            addBottomItem("Menu") { anchor ->
+                PopupMenu(this, anchor).apply {
+                    navActions.keys.filter { it != "Home" && it != "History" }
+                        .forEach { this.menu.add(it) }
+                    setOnMenuItemClickListener { item ->
+                        navActions[item.title.toString()]?.invoke()
+                        true
+                    }
+                    show()
+                }
+            }
+            masterRoot.addView(bottomNav, LinearLayout.LayoutParams(match, wrap))
+        }
         setContentView(masterRoot)
     }
 
@@ -2140,7 +2159,7 @@ class MainActivity : AppCompatActivity() {
             paint.style = Paint.Style.FILL
             paint.color = Color.WHITE
             paint.textSize = 17f
-            canvas.drawText("🗺️ Live Map", w * 0.58f, 32f, paint)
+            canvas.drawText("Route preview", w * 0.58f, 32f, paint)
         }
     }
 
