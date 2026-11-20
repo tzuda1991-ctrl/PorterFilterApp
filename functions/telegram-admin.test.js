@@ -158,3 +158,26 @@ test("invalid PIN stops the city and area from being added", async () => {
     await assert.rejects(service.write(tx, "save_area", ["Dhoraji", "new", "Baharpura", "123"]), /six-digit/);
     assert.equal(writes.length, 0);
 });
+
+test("Telegram queues a push only when creating a visible plan", async () => {
+    const db = {
+        doc: path => path,
+        collection: name => ({ doc: (id = "new-id") => ({ id, path: name + "/" + id }) }),
+    };
+    const records = [];
+    const tx = {
+        get: async ref => ({ exists: true, ref }),
+        set: (ref, data) => records.push([ref.path, data]),
+        create: (ref, data) => records.push([ref.path, data]),
+    };
+    const service = commands(db);
+    const args = ["Starter", "25", "7", "on", "-"];
+    assert.match(await service.write(tx, "save_plan", ["new", ...args]), /Push queued/);
+    assert.deepEqual(records[1], ["notification_requests/new-id", { kind: "plan", planId: "new-id" }]);
+    records.length = 0;
+    await service.write(tx, "save_plan", ["existing", ...args]);
+    assert.equal(records.length, 1);
+    records.length = 0;
+    await service.write(tx, "save_plan", ["new", "Hidden", "25", "7", "off", "-"]);
+    assert.equal(records.length, 1);
+});

@@ -64,7 +64,7 @@ const prompts = {
     assign_id: "Driver ID", block: "Driver ID", unblock: "Driver ID", delete_driver: "Driver ID",
     reset_phone: "Driver ID", extend: "Driver ID | days to add", expire: "Driver ID | minutes until expiry (0 for now)",
     payment: "Payment ID", approve: "Payment ID", reject: "Payment ID",
-    new_plan: "Name | price | days | on/off | description",
+    new_plan: "Name | price | days | on/off | description\nChoose on to publish the plan and send a driver push.",
     save_plan: "Plan ID | name | price | days | on/off | description",
     push_plan: "Plan ID", plan_visibility: "Plan ID | on/off",
     generate_keys: "Plan name | validity in days | quantity (1–30)",

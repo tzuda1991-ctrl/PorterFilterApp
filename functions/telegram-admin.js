@@ -17,7 +17,7 @@ const help = [
     "/extend ID | days · /expire ID | minutes",
     "Payments: /approve ID · /reject ID",
     "Plans: /save_plan ID-or-new | name | price | days | on/off | description",
-    "/push_plan ID · /plan_visibility ID | on/off",
+    "New visible plans queue a driver push. /push_plan ID · /plan_visibility ID | on/off",
     "Keys: /generate_keys plan | days | count",
     "Cities: /cities · /add_city city · /remove_city city",
     "Areas: /areas city | page · /save_area city | old-name-or-new | name | PINs",
@@ -306,9 +306,14 @@ function commands(db) {
             const plan = id === "new" ? db.collection("subscription_plans").doc() :
                 (await current(tx, ref("subscription_plans", id))).ref;
             requireInput(name.length <= 100 && description.length <= 1000, "Plan text is too long.");
+            const isVisible = enabled(visible);
             tx.set(plan, { name, price: integer(price, 1, 1000000), durationDays: integer(days, 1, 3650),
-                enabled: enabled(visible), description: optional(description) }, { merge: true });
-            return "Plan saved. ID: " + plan.id;
+                enabled: isVisible, description: optional(description) }, { merge: true });
+            const shouldNotify = id === "new" && isVisible;
+            if (shouldNotify) {
+                tx.create(db.collection("notification_requests").doc(), { kind: "plan", planId: plan.id });
+            }
+            return "Plan saved. ID: " + plan.id + (shouldNotify ? "\nPush queued for drivers." : "");
         }
         if (command === "push_plan" || command === "plan_visibility") {
             const plan = await current(tx, ref("subscription_plans", args[0]));
@@ -473,7 +478,9 @@ function startTelegramAdmin(db, token, signal, logger = console) {
             const description = command === "save_area" && args[1] === "new" && args.length === 4
                 ? "Add " + args[2] + " in " + args[0] + (optional(args[3]) ? " · PIN " + args[3] : "") +
                     ". If this city is missing, it will also be added to the driver dropdown."
-                : "/" + command + " " + args.join(" | ");
+                : "/" + command + " " + args.join(" | ") +
+                    (command === "save_plan" && args[0] === "new" && args[4] === "on"
+                        ? "\nA push notification will be queued for drivers." : "");
             await confirmChange(chatId, command, args, description, back);
             return;
         }
