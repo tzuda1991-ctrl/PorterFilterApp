@@ -791,97 +791,45 @@ class MainActivity : AppCompatActivity() {
         speedCard.addView(speedHeaderRow)
 
         val speedTilesRow = LinearLayout(this).apply {
-            orientation = if (compact) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
-            weightSum = 3f
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+            orientation = LinearLayout.HORIZONTAL
         }
-
-        val speedTileMap = mutableMapOf<String, LinearLayout>()
+        val speedTileMap = linkedMapOf<String, TextView>()
 
         fun updateVelocityVisuals() {
-            for ((k, tile) in speedTileMap) {
-                val active = (k == selectedSpeed)
+            speedTileMap.forEach { (key, tile) ->
+                val active = key == selectedSpeed
                 tile.isSelected = active
+                tile.setTextColor(Color.parseColor(if (active) "#FFFFFF" else "#10264D"))
                 tile.background = createNeonBox(
-                    if (active) "#DCEAFF" else "#FFFFFF",
-                    if (active) "#2455A0" else "#CAD7E8",
-                    12
+                    if (active) "#18417B" else "#FFFFFF",
+                    if (active) "#18417B" else "#CAD7E8",
+                    10
                 )
-                (tile.tag as TextView).text = if (active) "✓" else ""
-
             }
         }
 
-        fun makeVelocityCard(key: String, iconStr: String, titleStr: String, msStr: String, msColor: String): LinearLayout {
-            return LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(8), dp(4), dp(8), dp(4))
-                layoutParams = cardParams().apply {
-                    if (key != "NATURAL") {
-                        if (compact) bottomMargin = dp(5) else marginEnd = dp(5)
-                    }
-                }
-
-                val icCircle = TextView(context).apply {
-                    text = iconStr
-                    textSize = 12f
-                    gravity = Gravity.CENTER
-                    background = createNeonBox("#E8F1FE", msColor, 50)
-                    layoutParams = LinearLayout.LayoutParams(dp(26), dp(26)).apply { rightMargin = dp(6) }
-                }
-
-                val tCol = LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                }
-
-                val tvT = TextView(context).apply {
-                    text = titleStr
-                    textSize = 15f
-                    setTextColor(Color.parseColor("#10264D"))
-                    typeface = Typeface.DEFAULT_BOLD
-                }
-                val tvM = TextView(context).apply {
-                    text = msStr
-                    textSize = 12f
-                    setTextColor(Color.parseColor("#42536D"))
-                    typeface = Typeface.DEFAULT_BOLD
-                }
-                tCol.addView(tvT)
-                tCol.addView(tvM)
-
-                addView(icCircle)
-                addView(tCol)
-                val checkmark = TextView(context).apply {
-                    setTextColor(Color.parseColor("#2455A0"))
-                    textSize = 16f
-                }
-                tag = checkmark
-                addView(checkmark)
-
+        fun addSpeedTile(key: String, label: String, timing: String) {
+            val tile = TextView(this).apply {
+                text = "$label\n$timing"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                minimumHeight = dp(50)
+                setPadding(dp(3), dp(4), dp(3), dp(4))
                 setOnClickListener {
                     selectedSpeed = key
                     updateVelocityVisuals()
-                    Toast.makeText(this@MainActivity, "Velocity set: $titleStr ($msStr)", Toast.LENGTH_SHORT).show()
                 }
             }
+            speedTileMap[key] = tile
+            speedTilesRow.addView(tile, LinearLayout.LayoutParams(0, wrap, 1f).apply {
+                marginStart = dp(2)
+                marginEnd = dp(2)
+            })
         }
-
-        val tQuick = makeVelocityCard("QUICK", "⚡", "Quick", "120 ms", "#00F5D4")
-        val tNormal = makeVelocityCard("NORMAL", "🏎️", "Normal", "250 ms", "#38BDF8")
-        val tNatural = makeVelocityCard("NATURAL", "🌱", "Human", "450 ms", "#C79838")
-
-        speedTileMap["QUICK"] = tQuick
-        speedTileMap["NORMAL"] = tNormal
-        speedTileMap["NATURAL"] = tNatural
-
-        speedTilesRow.addView(tQuick)
-        speedTilesRow.addView(tNormal)
-        speedTilesRow.addView(tNatural)
+        addSpeedTile("QUICK", "Quick", "120 ms")
+        addSpeedTile("NORMAL", "Normal", "250 ms")
+        addSpeedTile("NATURAL", "Human", "450 ms")
         updateVelocityVisuals()
 
         speedCard.addView(speedTilesRow)
@@ -1408,19 +1356,41 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- DRIVER PROFILE & VALIDITY / BUY DIALOG ----------------
     private fun showDriverProfileAndValidityDialog() {
+        val loading = AlertDialog.Builder(this)
+            .setMessage("Checking subscription…")
+            .show()
+        ZuAutoCloudManager.syncDriverValidityFromCloud(this) { synced ->
+            if (isFinishing || isDestroyed || !loading.isShowing) return@syncDriverValidityFromCloud
+            loading.dismiss()
+            updatePlanBadge()
+            renderDriverProfile(synced)
+        }
+    }
+
+    private fun updatePlanBadge() {
+        val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
+        planBadge.text = prefs.getString("USER_PLAN", "TRIAL") ?: "TRIAL"
+    }
+
+    private fun renderDriverProfile(synced: Boolean) {
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         val name = prefs.getString("USER_NAME", "Driver") ?: "Driver"
         val phone = prefs.getString("USER_PHONE", "--") ?: "--"
         val uid = prefs.getString("USER_UID", "DRV-1001") ?: "DRV-1001"
         val city = prefs.getString("USER_CITY", selectedCity) ?: selectedCity
         val vehicle = prefs.getString("USER_VEHICLE", "Porter Vehicle") ?: "Porter Vehicle"
-        val plan = prefs.getString("USER_PLAN", "TRIAL")?.uppercase(Locale.US) ?: "TRIAL"
+        val plan = prefs.getString("USER_PLAN", "TRIAL") ?: "TRIAL"
         val expiresAtMillis = prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L)
         val now = System.currentTimeMillis()
 
-        val isTrial = plan.contains("TRIAL")
+        val isTrial = plan.equals("TRIAL", ignoreCase = true)
         val isExpired = expiresAtMillis in 1..now
         val isActive = expiresAtMillis == 0L || expiresAtMillis > now
+        val renewalWindow = java.util.concurrent.TimeUnit.HOURS.toMillis(48)
+        val canPurchase = synced && (isTrial || isExpired ||
+            (expiresAtMillis > now && expiresAtMillis - now <= renewalWindow))
+        val durationDays = prefs.getInt("PLAN_DURATION_DAYS", 0)
+        val startedAt = prefs.getLong("PLAN_STARTED_AT_MILLIS", 0L)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1485,7 +1455,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val valTitle = TextView(this).apply {
-            text = if (isExpired) "⚠️ MEMBERSHIP EXPIRED" else if (isTrial) "🕒 3-DAY FREE TRIAL ACTIVE" else "👑 $plan VIP ACCESS ACTIVE"
+            text = if (isExpired) "⚠️ MEMBERSHIP EXPIRED" else if (isTrial) "🕒 3-DAY FREE TRIAL ACTIVE" else "$plan · Active"
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(if (isExpired) Color.parseColor("#EF4444") else if (isTrial) Color.parseColor("#FACC15") else Color.parseColor("#10B981"))
@@ -1494,9 +1464,19 @@ class MainActivity : AppCompatActivity() {
             if (expiresAtMillis > 0L) {
                 val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
                 val expDateStr = sdf.format(Date(expiresAtMillis))
-                val remainingMs = expiresAtMillis - now
-                val hours = (remainingMs / (1000 * 60 * 60)).coerceAtLeast(0)
-                text = if (isExpired) "Expired on $expDateStr. Renew to restore auto-accept." else "Valid until $expDateStr (Remaining: ~${hours}h)"
+                val minutes = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(
+                    (expiresAtMillis - now).coerceAtLeast(0L)
+                )
+                text = if (isExpired) {
+                    "Expired on $expDateStr"
+                } else {
+                    buildString {
+                        if (!isTrial && durationDays > 0) append("Plan duration: $durationDays days\n")
+                        if (!isTrial && startedAt > 0) append("Starts: ${sdf.format(Date(startedAt))}\n")
+                        append("Valid until $expDateStr\n")
+                        append("Remaining: ${minutes / 1440}d ${minutes % 1440 / 60}h ${minutes % 60}m")
+                    }
+                }
             } else {
                 text = "Lifetime VIP Access Enabled"
             }
@@ -1508,15 +1488,23 @@ class MainActivity : AppCompatActivity() {
         validityCard.addView(valSub)
         root.addView(validityCard)
 
+        if (!synced) {
+            root.addView(TextView(this).apply {
+                text = "Could not refresh subscription. Showing saved status. Reopen Profile to retry."
+                setTextColor(Color.parseColor("#FACC15"))
+                textSize = 12f
+            })
+        }
+
         // Plans Section Title
         val plansTitle = TextView(this).apply {
-            text = "🚀 SELECT VIP AUTOPILOT PLAN"
+            text = if (isTrial) "Choose a paid plan" else "Renew subscription"
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#00E5FF"))
             setPadding(0, 0, 0, dp(8))
         }
-        root.addView(plansTitle)
+        if (canPurchase) root.addView(plansTitle)
 
         // Dynamic Plans Container
         val plansScroll = ScrollView(this).apply {
@@ -1526,12 +1514,12 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
         }
         plansScroll.addView(plansListContainer)
-        root.addView(plansScroll)
+        if (canPurchase) root.addView(plansScroll)
 
         var mainDialog: AlertDialog? = null
 
         // Fetch Plans from Firestore
-        ZuAutoCloudManager.fetchSubscriptionPlans { plans ->
+        if (canPurchase) ZuAutoCloudManager.fetchSubscriptionPlans { plans ->
             plansListContainer.removeAllViews()
             for (p in plans) {
                 val pCard = LinearLayout(this).apply {
@@ -1571,7 +1559,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val buyBtn = Button(this).apply {
-                    text = "BUY NOW - ₹${p.price}"
+                    text = if (isTrial) "Buy · ₹${p.price}" else "Renew · ₹${p.price}"
                     setTextColor(Color.parseColor("#050811"))
                     typeface = Typeface.DEFAULT_BOLD
                     textSize = 11f
@@ -1624,7 +1612,7 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, dp(38), 0.6f)
             setOnClickListener { mainDialog?.dismiss() }
         }
-        actionsRow.addView(redeemKeyBtn)
+        if (canPurchase) actionsRow.addView(redeemKeyBtn)
         actionsRow.addView(closeBtn)
         root.addView(actionsRow)
 
@@ -1970,6 +1958,11 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateSystemStatusBar()
+        if (ZuAutoCloudManager.isUserRegistered(this)) {
+            ZuAutoCloudManager.syncDriverValidityFromCloud(this) { synced ->
+                if (synced && !isFinishing && !isDestroyed) updatePlanBadge()
+            }
+        }
     }
 
     private fun updateSystemStatusBar() {

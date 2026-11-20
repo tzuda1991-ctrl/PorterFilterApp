@@ -236,22 +236,29 @@ object ZuAutoCloudManager {
                     val resp = reader.readText()
                     reader.close()
 
-                    val json = JSONObject(resp)
-                    val fields = json.optJSONObject("fields")
-                    if (fields != null) {
-                        val planName = fields.optJSONObject("planName")?.optString("stringValue", "TRIAL") ?: "TRIAL"
-                        val validUntilIso = fields.optJSONObject("validUntil")?.optString("stringValue", "") ?: ""
-                        if (validUntilIso.isNotEmpty()) {
-                            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-                            sdf.timeZone = TimeZone.getTimeZone("UTC")
-                            val expDate = sdf.parse(validUntilIso)
-                            if (expDate != null) {
-                                prefs.edit()
-                                    .putString("USER_PLAN", planName)
-                                    .putLong("PLAN_EXPIRES_AT_MILLIS", expDate.time)
-                                    .apply()
-                            }
-                        }
+                    val fields = JSONObject(resp).getJSONObject("fields")
+                    fun value(key: String): String {
+                        val field = fields.optJSONObject(key) ?: return ""
+                        return field.optString("stringValue", field.optString("timestampValue", ""))
+                    }
+                    fun parseDate(value: String): Long? = runCatching {
+                        java.time.Instant.parse(value).toEpochMilli()
+                    }.getOrNull()
+
+                    val planName = value("planName").ifBlank { value("plan") }
+                    val expires = parseDate(value("validUntil")) ?: parseDate(value("planExpiresAt"))
+                    check(planName.isNotBlank() && expires != null)
+                    val savedPlan = prefs.getString("USER_PLAN", "TRIAL").orEmpty()
+                    val localKeyPlan = planName.equals("TRIAL", true) &&
+                        !savedPlan.equals("TRIAL", true) &&
+                        prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L) > expires
+                    if (!localKeyPlan) {
+                        prefs.edit()
+                            .putString("USER_PLAN", planName)
+                            .putLong("PLAN_EXPIRES_AT_MILLIS", expires)
+                            .putLong("PLAN_STARTED_AT_MILLIS", parseDate(value("subscriptionStartsAt")) ?: 0L)
+                            .putInt("PLAN_DURATION_DAYS", value("subscriptionDurationDays").toIntOrNull() ?: 0)
+                            .apply()
                     }
                     mainHandler.post { onSynced(true) }
                 } else {

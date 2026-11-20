@@ -353,10 +353,43 @@ object AdminCloudService {
                 val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                     timeZone = java.util.TimeZone.getTimeZone("UTC")
                 }
-                val expiry = formatter.format(Date(now + req.durationDays.toLong() * 86400000L))
                 val documentsPath = FIRESTORE_BASE_URL.substringAfter("/v1/")
+                val paymentPath = "payment_requests/${req.id}"
+                val driverPath = "users/${req.userId}"
 
-                fun update(path: String, values: Map<String, String>): JSONObject {
+                fun readDocument(path: String): JSONObject {
+                    val connection = URL("$FIRESTORE_BASE_URL/$path?key=$FIREBASE_API_KEY")
+                        .openConnection() as HttpURLConnection
+                    try {
+                        connection.connectTimeout = 8000
+                        connection.readTimeout = 8000
+                        return connection.inputStream.bufferedReader().use { JSONObject(it.readText()) }
+                    } finally {
+                        connection.disconnect()
+                    }
+                }
+
+                val payment = readDocument(paymentPath)
+                check(payment.getJSONObject("fields").getJSONObject("status").getString("stringValue") == "pending") {
+                    "This payment has already been reviewed"
+                }
+                val driver = readDocument(driverPath)
+                val driverFields = driver.getJSONObject("fields")
+                val currentPlan = driverFields.optJSONObject("planName")?.optString("stringValue").orEmpty()
+                val validity = driverFields.optJSONObject("validUntil")
+                val currentExpiry = runCatching {
+                    val raw = validity?.optString("stringValue").orEmpty()
+                        .ifBlank { validity?.optString("timestampValue").orEmpty() }
+                    java.time.Instant.parse(raw).toEpochMilli()
+                }.getOrDefault(now)
+                val startsAt = if (currentPlan.isNotBlank() && !currentPlan.equals("TRIAL", true)) {
+                    maxOf(now, currentExpiry)
+                } else {
+                    now
+                }
+                val expiry = formatter.format(Date(startsAt + req.durationDays.toLong() * 86400000L))
+
+                fun update(path: String, snapshot: JSONObject, values: Map<String, String>): JSONObject {
                     val fields = JSONObject()
                     values.forEach { (field, value) ->
                         fields.put(field, JSONObject().put("stringValue", value))
@@ -364,18 +397,20 @@ object AdminCloudService {
                     return JSONObject()
                         .put("update", JSONObject().put("name", "$documentsPath/$path").put("fields", fields))
                         .put("updateMask", JSONObject().put("fieldPaths", org.json.JSONArray(values.keys.toList())))
-                        .put("currentDocument", JSONObject().put("exists", true))
+                        .put("currentDocument", JSONObject().put("updateTime", snapshot.getString("updateTime")))
                 }
 
                 val writes = org.json.JSONArray()
-                    .put(update("payment_requests/${req.id}", mapOf(
+                    .put(update(paymentPath, payment, mapOf(
                         "status" to "approved",
                         "reviewedAt" to formatter.format(Date(now))
                     )))
-                    .put(update("users/${req.userId}", mapOf(
+                    .put(update(driverPath, driver, mapOf(
                         "subscriptionStatus" to "active",
                         "planName" to req.planName,
-                        "validUntil" to expiry
+                        "validUntil" to expiry,
+                        "subscriptionStartsAt" to formatter.format(Date(startsAt)),
+                        "subscriptionDurationDays" to req.durationDays.toString()
                     )))
                 val connection = URL("$FIRESTORE_BASE_URL:commit?key=$FIREBASE_API_KEY")
                     .openConnection() as HttpURLConnection
