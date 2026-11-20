@@ -47,6 +47,27 @@ object ZuAutoCloudManager {
         val description: String
     )
 
+    fun fetchPaymentSettings(callback: (String?, String?) -> Unit) {
+        executor.execute {
+            val result = runCatching {
+                val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY")
+                    .openConnection() as HttpURLConnection
+                try {
+                    connection.connectTimeout = 8000
+                    connection.readTimeout = 8000
+                    val fields = connection.inputStream.bufferedReader().use {
+                        JSONObject(it.readText()).getJSONObject("fields")
+                    }
+                    fields.getJSONObject("upiId").getString("stringValue") to
+                        fields.optJSONObject("qrUrl")?.optString("stringValue").orEmpty()
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrNull()
+            mainHandler.post { callback(result?.first, result?.second) }
+        }
+    }
+
     fun isUserRegistered(context: Context): Boolean {
         val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         return prefs.getBoolean("IS_REGISTERED", false) && prefs.getString("USER_PHONE", "")?.isNotEmpty() == true
@@ -64,6 +85,8 @@ object ZuAutoCloudManager {
         context: Context,
         onUpdateNeeded: (isForce: Boolean, newVersionName: String, notes: String, downloadUrl: String) -> Unit
     ) {
+        @Suppress("DEPRECATION")
+        val installedCode = context.packageManager.getPackageInfo(context.packageName, 0).versionCode
         executor.execute {
             try {
                 val url = URL("$FIRESTORE_BASE_URL/app_config/version_control?key=$FIREBASE_API_KEY")
@@ -93,11 +116,14 @@ object ZuAutoCloudManager {
                         val forceUpdate = fields.optJSONObject("forceUpdate")?.optBoolean("booleanValue", false)
                             ?: false
 
-                        val isOlder = CURRENT_VERSION_CODE < remoteCode
-                        val isBelowMin = CURRENT_VERSION_CODE < minCode
+                        val isOlder = installedCode < remoteCode
+                        val isBelowMin = installedCode < minCode
                         val mustForce = forceUpdate && isOlder || isBelowMin
 
-                        if (isOlder || mustForce) {
+                        val apk = android.net.Uri.parse(downloadUrl)
+                        val hasApkLink = apk.scheme == "https" && !apk.host.isNullOrBlank() &&
+                            apk.path?.endsWith(".apk", ignoreCase = true) == true
+                        if (hasApkLink && (isOlder || mustForce)) {
                             mainHandler.post {
                                 onUpdateNeeded(mustForce, remoteName, releaseNotes, downloadUrl)
                             }
@@ -355,12 +381,12 @@ object ZuAutoCloudManager {
                     }
                 } else {
                     mainHandler.post {
-                        callback(true, "Request queued! Admin team will verify your UTR.")
+                        callback(false, "Payment proof could not be saved (HTTP $code). Retry with the same UTR.")
                     }
                 }
             } catch (e: Exception) {
                 mainHandler.post {
-                    callback(true, "Request recorded. Admin verification in progress.")
+                    callback(false, "Submission could not be confirmed. Keep your UTR for verification.")
                 }
             }
         }

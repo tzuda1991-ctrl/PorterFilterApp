@@ -791,16 +791,22 @@ class AdminMainActivity : AppCompatActivity() {
                 topMargin = dp(16)
             }
             setOnClickListener {
-                val code = verCodeIn.text.toString().toIntOrNull() ?: 10
+                val code = verCodeIn.text.toString().toIntOrNull() ?: 0
                 val name = verNameIn.text.toString().trim()
                 val url = dlUrlIn.text.toString().trim()
                 val notes = notesIn.text.toString().trim()
                 val force = forceSwitch.isChecked
 
+                val apk = android.net.Uri.parse(url)
+                if (code <= 0 || name.isBlank() || apk.scheme != "https" ||
+                    apk.host.isNullOrBlank() || apk.path?.endsWith(".apk", ignoreCase = true) != true) {
+                    Toast.makeText(this@AdminMainActivity, "Enter a version and direct HTTPS APK link", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
                 AdminCloudService.pushNewVersion(
                     code = code,
                     name = name,
-                    minCode = code,
+                    minCode = if (force) code else 1,
                     dlUrl = url,
                     notes = notes,
                     force = force,
@@ -815,6 +821,14 @@ class AdminMainActivity : AppCompatActivity() {
             }
         }
         col.addView(pushBtn)
+
+        AdminCloudService.fetchVersionConfig { code, name, _, url, notes, force ->
+            verCodeIn.setText(code.toString())
+            verNameIn.setText(name)
+            dlUrlIn.setText(url)
+            notesIn.setText(notes)
+            forceSwitch.isChecked = force
+        }
 
         scroll.addView(col)
         contentFrame.addView(scroll)
@@ -898,6 +912,47 @@ class AdminMainActivity : AppCompatActivity() {
     }
 
     // ---------------- PAYMENTS VERIFICATION TAB ----------------
+    private fun showPaymentSettings() {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), 0, dp(20), 0)
+        }
+        val upi = EditText(this).apply { hint = "UPI ID" }
+        val qr = EditText(this).apply { hint = "HTTPS QR image URL (optional)" }
+        form.addView(upi)
+        form.addView(qr)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Payment settings")
+            .setView(form)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .show()
+        val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        save.isEnabled = false
+        AdminCloudService.fetchPaymentSettings { id, url ->
+            upi.setText(id.orEmpty())
+            qr.setText(url.orEmpty())
+            save.isEnabled = true
+        }
+        save.setOnClickListener {
+            val id = upi.text.toString().trim()
+            val url = qr.text.toString().trim()
+            val uri = android.net.Uri.parse(url)
+            if (!id.matches(Regex("[A-Za-z0-9._-]+@[A-Za-z0-9._-]+"))) {
+                upi.error = "Enter a valid UPI ID"
+            } else if (url.isNotEmpty() && (uri.scheme != "https" || uri.host.isNullOrBlank())) {
+                qr.error = "Enter an HTTPS image URL"
+            } else {
+                save.isEnabled = false
+                AdminCloudService.savePaymentSettings(id, url) { success ->
+                    save.isEnabled = true
+                    if (success) dialog.dismiss()
+                    Toast.makeText(this, if (success) "Payment settings saved" else "Save failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private fun renderPaymentsView() {
         val scroll = ScrollView(this).apply {
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
@@ -915,6 +970,10 @@ class AdminMainActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             setPadding(0, 0, 0, dp(8))
         }
+        col.addView(Button(this).apply {
+            text = "UPI & QR SETTINGS"
+            setOnClickListener { showPaymentSettings() }
+        })
         col.addView(headTv)
 
         if (paymentList.isEmpty()) {

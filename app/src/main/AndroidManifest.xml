@@ -22,7 +22,7 @@
         android:allowBackup="true"
         android:icon="@drawable/ic_vip_logo"
         android:roundIcon="@drawable/ic_vip_logo"
-        android:label="ZuAuto"
+        android:label="ZU Smart"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.NoActionBar">
 

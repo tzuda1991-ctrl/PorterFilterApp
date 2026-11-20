@@ -71,6 +71,53 @@ object AdminCloudService {
     )
 
     // ---------------- FETCH DRIVERS VIA RUNQUERY ----------------
+    fun savePaymentSettings(upiId: String, qrUrl: String, callback: (Boolean) -> Unit) {
+        executor.execute {
+            val saved = runCatching {
+                val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY")
+                    .openConnection() as HttpURLConnection
+                try {
+                    connection.requestMethod = "PATCH"
+                    connection.connectTimeout = 8000
+                    connection.readTimeout = 8000
+                    connection.doOutput = true
+                    connection.setRequestProperty("Content-Type", "application/json")
+                    val fields = JSONObject()
+                        .put("upiId", JSONObject().put("stringValue", upiId))
+                        .put("qrUrl", JSONObject().put("stringValue", qrUrl))
+                    connection.outputStream.bufferedWriter().use {
+                        it.write(JSONObject().put("fields", fields).toString())
+                    }
+                    connection.responseCode in 200..299
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrDefault(false)
+            mainHandler.post { callback(saved) }
+        }
+    }
+
+    fun fetchPaymentSettings(callback: (String?, String?) -> Unit) {
+        executor.execute {
+            val result = runCatching {
+                val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY")
+                    .openConnection() as HttpURLConnection
+                try {
+                    connection.connectTimeout = 8000
+                    connection.readTimeout = 8000
+                    val fields = connection.inputStream.bufferedReader().use {
+                        JSONObject(it.readText()).getJSONObject("fields")
+                    }
+                    fields.getJSONObject("upiId").getString("stringValue") to
+                        fields.optJSONObject("qrUrl")?.optString("stringValue").orEmpty()
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrNull()
+            mainHandler.post { callback(result?.first, result?.second) }
+        }
+    }
+
     fun fetchDrivers(callback: (List<DriverItem>) -> Unit) {
         executor.execute {
             val list = mutableListOf<DriverItem>()
@@ -301,48 +348,51 @@ object AdminCloudService {
     fun approvePaymentRequest(req: PaymentRequestItem, callback: (Boolean, String) -> Unit) {
         executor.execute {
             try {
-                val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
-                val newExpiryMillis = System.currentTimeMillis() + (req.durationDays.toLong() * 86400000L)
-                val newExpiryIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date(newExpiryMillis))
-
-                // 1. Update Payment Request status
-                val payUrl = URL("$FIRESTORE_BASE_URL/payment_requests/${req.id}?updateMask.fieldPaths=status&updateMask.fieldPaths=reviewedAt&key=$FIREBASE_API_KEY")
-                val payConn = payUrl.openConnection() as HttpURLConnection
-                payConn.requestMethod = "PATCH"
-                payConn.setRequestProperty("Content-Type", "application/json")
-                payConn.doOutput = true
-
-                val payBody = JSONObject().apply {
-                    val f = JSONObject()
-                    f.put("status", JSONObject().put("stringValue", "approved"))
-                    f.put("reviewedAt", JSONObject().put("stringValue", nowIso))
-                    put("fields", f)
+                require(req.durationDays > 0) { "Invalid subscription duration" }
+                val now = System.currentTimeMillis()
+                val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
                 }
-                val payWriter = OutputStreamWriter(payConn.outputStream)
-                payWriter.write(payBody.toString())
-                payWriter.flush()
-                payWriter.close()
-                payConn.responseCode
+                val expiry = formatter.format(Date(now + req.durationDays.toLong() * 86400000L))
+                val documentsPath = FIRESTORE_BASE_URL.substringAfter("/v1/")
 
-                // 2. Update Driver user validity
-                val userUrl = URL("$FIRESTORE_BASE_URL/users/${req.userId}?updateMask.fieldPaths=subscriptionStatus&updateMask.fieldPaths=planName&updateMask.fieldPaths=validUntil&key=$FIREBASE_API_KEY")
-                val userConn = userUrl.openConnection() as HttpURLConnection
-                userConn.requestMethod = "PATCH"
-                userConn.setRequestProperty("Content-Type", "application/json")
-                userConn.doOutput = true
-
-                val userBody = JSONObject().apply {
-                    val f = JSONObject()
-                    f.put("subscriptionStatus", JSONObject().put("stringValue", "active"))
-                    f.put("planName", JSONObject().put("stringValue", req.planName))
-                    f.put("validUntil", JSONObject().put("stringValue", newExpiryIso))
-                    put("fields", f)
+                fun update(path: String, values: Map<String, String>): JSONObject {
+                    val fields = JSONObject()
+                    values.forEach { (field, value) ->
+                        fields.put(field, JSONObject().put("stringValue", value))
+                    }
+                    return JSONObject()
+                        .put("update", JSONObject().put("name", "$documentsPath/$path").put("fields", fields))
+                        .put("updateMask", JSONObject().put("fieldPaths", org.json.JSONArray(values.keys.toList())))
+                        .put("currentDocument", JSONObject().put("exists", true))
                 }
-                val userWriter = OutputStreamWriter(userConn.outputStream)
-                userWriter.write(userBody.toString())
-                userWriter.flush()
-                userWriter.close()
-                userConn.responseCode
+
+                val writes = org.json.JSONArray()
+                    .put(update("payment_requests/${req.id}", mapOf(
+                        "status" to "approved",
+                        "reviewedAt" to formatter.format(Date(now))
+                    )))
+                    .put(update("users/${req.userId}", mapOf(
+                        "subscriptionStatus" to "active",
+                        "planName" to req.planName,
+                        "validUntil" to expiry
+                    )))
+                val connection = URL("$FIRESTORE_BASE_URL:commit?key=$FIREBASE_API_KEY")
+                    .openConnection() as HttpURLConnection
+                try {
+                    connection.requestMethod = "POST"
+                    connection.connectTimeout = 8000
+                    connection.readTimeout = 8000
+                    connection.setRequestProperty("Content-Type", "application/json")
+                    connection.doOutput = true
+                    connection.outputStream.bufferedWriter().use {
+                        it.write(JSONObject().put("writes", writes).toString())
+                    }
+                    val code = connection.responseCode
+                    check(code in 200..299) { "Firestore returned HTTP $code" }
+                } finally {
+                    connection.disconnect()
+                }
 
                 mainHandler.post {
                     callback(true, "Payment Approved! ${req.userName}'s ${req.planName} is now active.")
@@ -376,7 +426,9 @@ object AdminCloudService {
                 payWriter.write(payBody.toString())
                 payWriter.flush()
                 payWriter.close()
-                payConn.responseCode
+                val code = payConn.responseCode
+                payConn.disconnect()
+                check(code in 200..299) { "Firestore returned HTTP $code" }
 
                 mainHandler.post {
                     callback(true, "Payment request rejected.")
