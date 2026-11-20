@@ -107,46 +107,53 @@ class AdminMainActivity : AppCompatActivity() {
             setPadding(0, dp(4), 0, dp(24))
         }
 
-        val passInput = EditText(this).apply {
-            hint = "Enter Master PIN (Default: zu786)"
-            setHintTextColor(Color.parseColor("#475569"))
-            setTextColor(Color.parseColor("#00E5FF"))
-            textSize = 14f
+        val status = TextView(this).apply {
+            text = "Use your authorized Google account."
+            setTextColor(Color.parseColor("#CBD5E1"))
             gravity = Gravity.CENTER
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0C1428"))
-                cornerRadius = dp(14).toFloat()
-                setStroke(dp(1), Color.parseColor("#1E293B"))
-            }
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(16) }
+            setTextIsSelectable(true)
         }
-
         val loginBtn = Button(this).apply {
-            text = "AUTHENTICATE ADMIN ACCESS"
-            setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD
-            textSize = 13f
-            background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#0284C7"), Color.parseColor("#00E5FF"))
-            ).apply { cornerRadius = dp(14).toFloat() }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(48)
-            )
+            text = "Continue with Google"
+            isAllCaps = false
+        }
+        val signOut = Button(this).apply {
+            text = "Use another Google account"
+            isAllCaps = false
+            visibility = View.GONE
             setOnClickListener {
-                val input = passInput.text.toString().trim()
-                if (input == "zu786" || input.isEmpty()) {
+                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                showLoginGate()
+            }
+        }
+        fun verifyAccess(user: com.google.firebase.auth.FirebaseUser) {
+            loginBtn.isEnabled = false
+            status.text = "Checking admin access…"
+            AdminCloudService.checkAdminAccess(user.uid) { allowed ->
+                if (isFinishing || isDestroyed) return@checkAdminAccess
+                if (allowed) {
                     isAuthenticated = true
                     buildAdminDashboard()
+                    autoRefreshHandler.removeCallbacks(autoRefreshRunnable)
                     autoRefreshHandler.post(autoRefreshRunnable)
                 } else {
-                    Toast.makeText(this@AdminMainActivity, "Invalid PIN", Toast.LENGTH_SHORT).show()
+                    status.text = "Admin access unavailable for ${user.email.orEmpty()}.\nAccount UID: ${user.uid}"
+                    signOut.visibility = View.VISIBLE
+                    loginBtn.text = "Check access again"
+                    loginBtn.isEnabled = true
+                    loginBtn.setOnClickListener { verifyAccess(user) }
+                }
+            }
+        }
+        loginBtn.setOnClickListener {
+            loginBtn.isEnabled = false
+            com.zu.auth.GoogleAccountSignIn.signIn(
+                this, getString(R.string.default_web_client_id), android.os.CancellationSignal()
+            ) { result ->
+                if (isFinishing || isDestroyed) return@signIn
+                result.onSuccess { verifyAccess(it) }.onFailure {
+                    status.text = "Google sign-in did not complete. Try again."
+                    loginBtn.isEnabled = true
                 }
             }
         }
@@ -154,8 +161,10 @@ class AdminMainActivity : AppCompatActivity() {
         root.addView(logo)
         root.addView(title)
         root.addView(sub)
-        root.addView(passInput)
         root.addView(loginBtn)
+        root.addView(status)
+        root.addView(signOut)
+        com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.let { verifyAccess(it) }
 
         setContentView(root)
     }

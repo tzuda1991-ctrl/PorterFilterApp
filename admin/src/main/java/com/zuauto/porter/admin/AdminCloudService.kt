@@ -15,11 +15,37 @@ import java.util.concurrent.Executors
 
 object AdminCloudService {
 
-    private const val FIREBASE_PROJECT_ID = "gmp-demo-project-615064003"
-    private const val FIRESTORE_DATABASE_ID = "ai-studio-porterfilterapp-010c463f-82c7-4c8d-8552-abb324a0cb33"
-    private const val FIREBASE_API_KEY = "AIzaSyD3qvSOb402ydPohe7F-Ua_MVXzur0igSc"
-    private const val FIRESTORE_BASE_URL =
-        "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$FIRESTORE_DATABASE_ID/documents"
+    private val auth get() = com.google.firebase.auth.FirebaseAuth.getInstance()
+    private val FIREBASE_API_KEY get() = com.google.firebase.FirebaseApp.getInstance().options.apiKey
+    private val FIRESTORE_BASE_URL: String
+        get() = "https://firestore.googleapis.com/v1/projects/${com.google.firebase.FirebaseApp.getInstance().options.projectId}/databases/(default)/documents"
+
+    private fun URL.openAuthorizedConnection(): HttpURLConnection {
+        val user = checkNotNull(auth.currentUser) { "Sign in first." }
+        val token = com.google.android.gms.tasks.Tasks.await(
+            user.getIdToken(false), 10, java.util.concurrent.TimeUnit.SECONDS
+        ).token ?: error("Authentication token unavailable.")
+        return (openConnection() as HttpURLConnection).apply {
+            connectTimeout = 8000
+            readTimeout = 8000
+            setRequestProperty("Authorization", "Bearer $token")
+        }
+    }
+
+    fun checkAdminAccess(uid: String, callback: (Boolean) -> Unit) {
+        executor.execute {
+            val allowed = runCatching {
+                val connection = URL("$FIRESTORE_BASE_URL/admins/${android.net.Uri.encode(uid)}?key=$FIREBASE_API_KEY")
+                    .openAuthorizedConnection()
+                try {
+                    connection.responseCode == 200
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrDefault(false)
+            mainHandler.post { callback(allowed) }
+        }
+    }
 
     private val executor = Executors.newFixedThreadPool(4)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -75,7 +101,7 @@ object AdminCloudService {
         executor.execute {
             val saved = runCatching {
                 val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY")
-                    .openConnection() as HttpURLConnection
+                    .openAuthorizedConnection()
                 try {
                     connection.requestMethod = "PATCH"
                     connection.connectTimeout = 8000
@@ -101,7 +127,7 @@ object AdminCloudService {
         executor.execute {
             val result = runCatching {
                 val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY")
-                    .openConnection() as HttpURLConnection
+                    .openAuthorizedConnection()
                 try {
                     connection.connectTimeout = 8000
                     connection.readTimeout = 8000
@@ -123,7 +149,7 @@ object AdminCloudService {
             val list = mutableListOf<DriverItem>()
             try {
                 val url = URL("$FIRESTORE_BASE_URL:runQuery?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.openAuthorizedConnection()
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.connectTimeout = 8000
@@ -209,7 +235,7 @@ object AdminCloudService {
         executor.execute {
             val success = runCatching {
                 val driverUrl = "$FIRESTORE_BASE_URL/users/${android.net.Uri.encode(uid)}"
-                val snapshot = URL("$driverUrl?key=$FIREBASE_API_KEY").openConnection() as HttpURLConnection
+                val snapshot = URL("$driverUrl?key=$FIREBASE_API_KEY").openAuthorizedConnection()
                 val document = try {
                     snapshot.connectTimeout = 8000
                     snapshot.readTimeout = 8000
@@ -224,7 +250,7 @@ object AdminCloudService {
                 val updateTime = android.net.Uri.encode(document.getString("updateTime"))
                 val mask = fields.keys.joinToString("") { "&updateMask.fieldPaths=$it" }
                 val connection = URL("$driverUrl?key=$FIREBASE_API_KEY&currentDocument.updateTime=$updateTime$mask")
-                    .openConnection() as HttpURLConnection
+                    .openAuthorizedConnection()
                 try {
                     connection.connectTimeout = 8000
                     connection.readTimeout = 8000
@@ -254,7 +280,7 @@ object AdminCloudService {
             val list = mutableListOf<OrderItem>()
             try {
                 val url = URL("$FIRESTORE_BASE_URL:runQuery?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.openAuthorizedConnection()
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.connectTimeout = 8000
@@ -309,7 +335,7 @@ object AdminCloudService {
             val list = mutableListOf<PaymentRequestItem>()
             try {
                 val url = URL("$FIRESTORE_BASE_URL:runQuery?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.openAuthorizedConnection()
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.connectTimeout = 8000
@@ -377,7 +403,7 @@ object AdminCloudService {
 
                 fun readDocument(path: String): JSONObject {
                     val connection = URL("$FIRESTORE_BASE_URL/$path?key=$FIREBASE_API_KEY")
-                        .openConnection() as HttpURLConnection
+                        .openAuthorizedConnection()
                     try {
                         connection.connectTimeout = 8000
                         connection.readTimeout = 8000
@@ -431,7 +457,7 @@ object AdminCloudService {
                         "subscriptionDurationDays" to req.durationDays.toString()
                     )))
                 val connection = URL("$FIRESTORE_BASE_URL:commit?key=$FIREBASE_API_KEY")
-                    .openConnection() as HttpURLConnection
+                    .openAuthorizedConnection()
                 try {
                     connection.requestMethod = "POST"
                     connection.connectTimeout = 8000
@@ -464,7 +490,7 @@ object AdminCloudService {
             try {
                 val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
                 val payUrl = URL("$FIRESTORE_BASE_URL/payment_requests/$reqId?updateMask.fieldPaths=status&updateMask.fieldPaths=reviewedAt&key=$FIREBASE_API_KEY")
-                val payConn = payUrl.openConnection() as HttpURLConnection
+                val payConn = payUrl.openAuthorizedConnection()
                 payConn.requestMethod = "PATCH"
                 payConn.setRequestProperty("Content-Type", "application/json")
                 payConn.doOutput = true
@@ -501,7 +527,7 @@ object AdminCloudService {
         executor.execute {
             try {
                 val url = URL("$FIRESTORE_BASE_URL/app_config/version_control?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.openAuthorizedConnection()
                 conn.requestMethod = "GET"
                 conn.connectTimeout = 8000
                 if (conn.responseCode in 200..299) {
@@ -540,7 +566,7 @@ object AdminCloudService {
             var success = false
             try {
                 val url = URL("$FIRESTORE_BASE_URL/app_config/version_control?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.openAuthorizedConnection()
                 conn.requestMethod = "PATCH"
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.doOutput = true
@@ -593,7 +619,7 @@ object AdminCloudService {
                 val key = "ZU-$randPart"
                 try {
                     val url = URL("$FIRESTORE_BASE_URL/license_keys/$key?key=$FIREBASE_API_KEY")
-                    val conn = url.openConnection() as HttpURLConnection
+                    val conn = url.openAuthorizedConnection()
                     conn.requestMethod = "PATCH"
                     conn.setRequestProperty("Content-Type", "application/json")
                     conn.doOutput = true

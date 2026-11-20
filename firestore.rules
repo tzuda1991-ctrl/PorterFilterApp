@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function verifiedGoogleAccount() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+
+    function isAdmin() {
+      return verifiedGoogleAccount()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /admins/{uid} {
+      allow get: if verifiedGoogleAccount() && request.auth.uid == uid;
+    }
+
+    match /{collection}/{document} {
+      allow read, write: if collection in [
+        'users', 'orders', 'payment_requests', 'license_keys',
+        'app_config', 'subscription_plans'
+      ] && isAdmin();
+    }
+  }
+}
