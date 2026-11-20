@@ -62,6 +62,14 @@ service cloud.firestore {
         || (activeDriverSession() && document in ['version_control', 'payment_settings']);
     }
 
+    match /area_catalog/{city} {
+      allow get: if activeDriverSession() || isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['areas'])
+        && request.resource.data.areas is map
+        && request.resource.data.areas.size() <= 5000;
+    }
+
     match /subscription_plans/{plan} {
       allow read: if activeDriverSession();
     }

@@ -1,6 +1,7 @@
 package com.zuauto.porter.vip
 
 import android.app.AlertDialog
+import com.zu.auth.AreaCatalog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -26,6 +27,7 @@ import java.util.*
 class MainActivity : AppCompatActivity() {
 
     private var accountListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var areaListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var accessLocked = false
     private var lockReason: String? = null
     private var purchaseDialog: AlertDialog? = null
@@ -46,36 +48,6 @@ class MainActivity : AppCompatActivity() {
     private val selectedPickupSet = mutableSetOf<String>()
     private val selectedDropSet = mutableSetOf<String>()
 
-    private val cityAreasMap = linkedMapOf(
-        "Bengaluru" to emptyArray<String>(),
-        "Mumbai" to arrayOf(
-            "Andheri", "Bandra", "Borivali", "Bhiwandi", "Goregaon", "Malad",
-            "Kandivali", "Powai", "Kurla", "Ghatkopar", "Mulund", "Thane",
-            "Airoli", "Vashi", "Turbhe", "Panvel", "Kalyan", "Dombivli",
-            "Vasai", "Virar", "Dadar", "Worli", "Lower Parel", "Chembur", "Santacruz"
-        ),
-        "Delhi NCR" to arrayOf(
-            "Okhla", "Bawana", "Narela", "Mayapuri", "Naraina", "Dwarka",
-            "Rohini", "Janakpuri", "Karol Bagh", "Lajpat Nagar", "Saket",
-            "Noida", "Greater Noida", "Gurugram", "Manesar", "Faridabad",
-            "Ghaziabad", "Indirapuram", "Kundli", "Connaught Place"
-        ),
-        "Hyderabad" to arrayOf(
-            "Gachibowli", "Madhapur", "HITEC City", "Kukatpally", "Balanagar",
-            "Jeedimetla", "Uppal", "LB Nagar", "Secunderabad", "Banjara Hills",
-            "Jubilee Hills", "Miyapur", "Patancheru", "Shamshabad", "Kompally", "Attapur"
-        ),
-        "Chennai" to arrayOf(
-            "Guindy", "Ambattur", "Sriperumbudur", "Oragadam", "Anna Nagar",
-            "T Nagar", "Velachery", "Tambaram", "Porur", "OMR", "Perungudi",
-            "Poonamallee", "Madhavaram", "Chromepet", "Adyar"
-        ),
-        "Pune" to arrayOf(
-            "Chakan", "Pimpri", "Chinchwad", "Bhosari", "Hinjewadi", "Hadapsar",
-            "Kharadi", "Wagholi", "Wakad", "Baner", "Kothrud", "Viman Nagar",
-            "Katraj", "Talegaon", "Ranjangaon"
-        )
-    )
 
     private fun dp(v: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
@@ -383,6 +355,21 @@ class MainActivity : AppCompatActivity() {
         planBadge.maxWidth = dp(104)
         accountRow.addView(planBadge)
 
+        val citySelectBtn = TextView(this).apply {
+            text = "📍  $selectedCity   ▾"
+            textSize = 14f
+            setTextColor(Color.parseColor("#10264D"))
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            background = createNeonBox("#FFFFFF", "#C79838", 22)
+            minimumHeight = dp(44)
+            contentDescription = "Operating city: $selectedCity"
+        }
+        mainCol.addView(citySelectBtn, LinearLayout.LayoutParams(wrap, wrap).apply {
+            bottomMargin = dp(7)
+        })
+
         val heroBanner = ImageView(this).apply {
             contentDescription = "Delivery scooter in front of Vidhana Soudha"
             setImageResource(R.drawable.sapphire_bengaluru)
@@ -390,29 +377,17 @@ class MainActivity : AppCompatActivity() {
             background = createNeonBox("#F7FAFF", "#C79838", 18)
             clipToOutline = true
         }
-        mainCol.addView(heroBanner, LinearLayout.LayoutParams(match, dp(if (compact) 112 else 160)).apply {
+        mainCol.addView(heroBanner, LinearLayout.LayoutParams(match, dp(if (compact) 96 else 150)).apply {
             bottomMargin = dp(10)
         })
         val shortcutIndex = mainCol.childCount
 
-        // 3. FARE MODE & ACTIVE CITY
-        val fareCityRow = LinearLayout(this).apply {
-            orientation = if (compact) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
-            weightSum = 2f
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
-        }
-
         val fareCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setPadding(dp(10), dp(7), dp(10), dp(7))
             background = createNeonBox("#F7FAFF", "#A9771D", 16)
-            layoutParams = cardParams().apply {
-                if (compact) bottomMargin = dp(6) else marginEnd = dp(4)
-            }
+            layoutParams = LinearLayout.LayoutParams(match, wrap).apply { bottomMargin = dp(8) }
         }
 
         val fareTop = LinearLayout(this).apply {
@@ -512,67 +487,7 @@ class MainActivity : AppCompatActivity() {
         fareCard.addView(fareTop)
         fareCard.addView(stepperRow)
 
-        val cityCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = createNeonBox("#F7FAFF", "#C79838", 16)
-            layoutParams = cardParams().apply {
-                leftMargin = dp(4)
-            }
-        }
-        val cityTop = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(6) }
-        }
-        val pinCircle = TextView(this).apply {
-            text = "📍"
-            textSize = 13f
-            gravity = Gravity.CENTER
-            background = createNeonBox("#E3EEFC", "#C79838", 50)
-            layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply { rightMargin = dp(6) }
-        }
-        val cityTitleCol = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val cTitle = TextView(this).apply {
-            text = "City"
-            textSize = 15f
-            setTextColor(Color.parseColor("#10264D"))
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        val cSub = TextView(this).apply {
-            text = "Choose your operating city"
-            textSize = 12f
-            setTextColor(Color.parseColor("#42536D"))
-        }
-        cityTitleCol.addView(cTitle)
-        cityTitleCol.addView(cSub)
-        cityTop.addView(pinCircle)
-        cityTop.addView(cityTitleCol)
-
-        val citySelectBtn = TextView(this).apply {
-            text = "📍  $selectedCity   ▾"
-            textSize = 11.5f
-            setTextColor(Color.parseColor("#10264D"))
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), 0, dp(10), 0)
-            background = createNeonBox("#E8F1FE", "#C79838", 10)
-            minimumHeight = dp(32)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-        cityCard.addView(cityTop)
-        cityCard.addView(citySelectBtn)
-
-        fareCityRow.addView(fareCard)
-        fareCityRow.addView(cityCard)
-        mainCol.addView(fareCityRow)
+        mainCol.addView(fareCard)
 
         // 4. ROUTE ZONE FILTER + RADAR MAP
         val routeMasterCard = LinearLayout(this).apply {
@@ -624,7 +539,7 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(match, wrap)
         }
         val pToggleLabel = TextView(this).apply {
-            text = "Pickup zone"
+            text = "Pickup"
             textSize = 12f
             setTextColor(Color.parseColor("#10264D"))
             typeface = Typeface.DEFAULT_BOLD
@@ -643,7 +558,7 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(match, wrap)
         }
         val dToggleLabel = TextView(this).apply {
-            text = "Drop zone"
+            text = "Drop"
             textSize = 12f
             setTextColor(Color.parseColor("#10264D"))
             typeface = Typeface.DEFAULT_BOLD
@@ -659,32 +574,29 @@ class MainActivity : AppCompatActivity() {
         routeTopHeader.addView(mapIconBadge)
         routeTopHeader.addView(routeHeadCol)
         routeMasterCard.addView(routeTopHeader)
+        val sideBySideZones = configuration.screenWidthDp >= 350 && configuration.fontScale < 1.3f
         val zonesLeftCol = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            weightSum = 2f
-            layoutParams = cardParams(1.08f).apply {
-                rightMargin = dp(6)
-            }
+            orientation = if (sideBySideZones) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+            baselineAligned = false
         }
 
         val pickupBoxCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setPadding(dp(7), dp(4), dp(7), dp(4))
             background = createNeonBox("#FFFFFF", "#D9E4F0", 12)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(4) }
+            layoutParams = if (sideBySideZones) {
+                LinearLayout.LayoutParams(0, wrap, 1f).apply { marginEnd = dp(6) }
+            } else LinearLayout.LayoutParams(match, wrap).apply { bottomMargin = dp(5) }
         }
         val pickupDropdown = TextView(this).apply {
-            textSize = 15f
+            textSize = 13f
             setTextColor(Color.parseColor("#10264D"))
             typeface = Typeface.DEFAULT_BOLD
             setSingleLine(true)
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setPadding(dp(7), dp(4), dp(7), dp(4))
             background = createNeonBox("#EDF6F5", "#EDF6F5", 8)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -697,21 +609,19 @@ class MainActivity : AppCompatActivity() {
         val dropBoxCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setPadding(dp(7), dp(4), dp(7), dp(4))
             background = createNeonBox("#FFFFFF", "#D9E4F0", 12)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+            layoutParams = if (sideBySideZones) LinearLayout.LayoutParams(0, wrap, 1f)
+                else LinearLayout.LayoutParams(match, wrap)
         }
         val dropDropdown = TextView(this).apply {
-            textSize = 15f
+            textSize = 13f
             setTextColor(Color.parseColor("#10264D"))
             typeface = Typeface.DEFAULT_BOLD
             setSingleLine(true)
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setPadding(dp(7), dp(4), dp(7), dp(4))
             background = createNeonBox("#FAEFF2", "#FAEFF2", 8)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -737,14 +647,14 @@ class MainActivity : AppCompatActivity() {
             fSub.text = if (fActive) "Apply a minimum fare" else "Fare filter off"
 
             pickupDropdown.text = if (selectedPickupSet.isEmpty()) {
-                "Select pickup zones  ▾"
+                "Choose areas  ▾"
             } else {
                 "${selectedPickupSet.joinToString(", ")}  ▾"
             }
 
 
             dropDropdown.text = if (selectedDropSet.isEmpty()) {
-                "Select drop zones  ▾"
+                "Choose areas  ▾"
             } else {
                 "${selectedDropSet.joinToString(", ")}  ▾"
             }
@@ -788,22 +698,50 @@ class MainActivity : AppCompatActivity() {
 
         syncAllFilterStates()
 
+        fun observeCityAreas() {
+            areaListener?.remove()
+            val city = selectedCity
+            areaListener = AreaCatalog.document(city)
+                .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { snapshot, _ ->
+                    if (accessLocked || selectedCity != city || snapshot == null || snapshot.metadata.isFromCache) {
+                        return@addSnapshotListener
+                    }
+                    val available = AreaCatalog.read(this, city, snapshot)
+                        .keys.map { it.lowercase(Locale.ROOT) }.toSet()
+                    fun isAvailable(area: String) = area.lowercase(Locale.ROOT) in available
+                    val pickupChanged = selectedPickupSet.retainAll(::isAvailable)
+                    val dropChanged = selectedDropSet.retainAll(::isAvailable)
+                    if (pickupChanged || dropChanged) syncAllFilterStates()
+                    if (prefs.getString("SELECTED_CITY", "Bengaluru") == city) {
+                        val editor = prefs.edit()
+                        for (key in listOf("PICKUP_FILTER", "DROP_FILTER")) {
+                            val current = prefs.getString(key, "").orEmpty()
+                            val updated = current.split(',').map(String::trim)
+                                .filter(::isAvailable).joinToString(",")
+                            if (current != updated) editor.putString(key, updated)
+                        }
+                        editor.apply()
+                    }
+                }
+        }
+        observeCityAreas()
+
         pickupDropdown.setOnClickListener {
-            pickupSwitch.isChecked = true
             showAreaMultiSelectDialog("Select Pickup Zones ($selectedCity)", selectedPickupSet) {
+                pickupSwitch.isChecked = selectedPickupSet.isNotEmpty()
                 syncAllFilterStates()
             }
         }
 
         dropDropdown.setOnClickListener {
-            dropSwitch.isChecked = true
             showAreaMultiSelectDialog("Select Drop Zones ($selectedCity)", selectedDropSet) {
+                dropSwitch.isChecked = selectedDropSet.isNotEmpty()
                 syncAllFilterStates()
             }
         }
 
         citySelectBtn.setOnClickListener {
-            val cities = cityAreasMap.keys.toTypedArray()
+            val cities = AreaCatalog.cities.toTypedArray()
             AlertDialog.Builder(this)
                 .setTitle("Select Operating City")
                 .setItems(cities) { _, which ->
@@ -813,6 +751,8 @@ class MainActivity : AppCompatActivity() {
                         selectedPickupSet.clear()
                         selectedDropSet.clear()
                         citySelectBtn.text = "📍  $selectedCity   ▾"
+                        citySelectBtn.contentDescription = "Operating city: $selectedCity"
+                        observeCityAreas()
                         syncAllFilterStates()
                     }
                 }
@@ -1166,6 +1106,8 @@ class MainActivity : AppCompatActivity() {
         if (isFinishing || isDestroyed || (accessLocked && (lockReason != "expired" || reason == "expired"))) return
         accessLocked = true
         lockReason = reason
+        areaListener?.remove()
+        areaListener = null
         purchaseDialog?.dismiss()
         restrictionDialog?.dismiss()
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
@@ -1205,6 +1147,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        areaListener?.remove()
         accountListener?.remove()
         restrictionDialog?.dismiss()
         purchaseDialog?.dismiss()
@@ -2000,24 +1943,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------------- LICENSE KEY REDEMPTION DIALOG ----------------
-    private val bengaluruAreas by lazy {
-        assets.open("bengaluru-areas.tsv").bufferedReader().useLines { lines ->
-            lines.filter { it.isNotBlank() && !it.startsWith("#") }
-                .associate { line -> line.substringBefore('\t') to line.substringAfter('\t', "") }
-        }
-    }
-
     private fun showAreaMultiSelectDialog(
         title: String,
         targetSet: MutableSet<String>,
         onUpdated: () -> Unit
     ) {
-        val areaPins = if (selectedCity == "Bengaluru") bengaluruAreas else emptyMap()
-        val baseAreas = if (selectedCity == "Bengaluru") areaPins.keys.toList()
-            else cityAreasMap[selectedCity].orEmpty().toList()
-        val allAreas = (baseAreas + targetSet).distinctBy { it.lowercase(Locale.ROOT) }
-            .sortedWith(String.CASE_INSENSITIVE_ORDER)
-        val selections = targetSet.toMutableSet()
+        val city = selectedCity
+        val loading = AlertDialog.Builder(this).setMessage("Loading $city areas…").show()
+        AreaCatalog.document(city).get(com.google.firebase.firestore.Source.SERVER).addOnCompleteListener { task ->
+            if (!loading.isShowing || isFinishing || isDestroyed) return@addOnCompleteListener
+            loading.dismiss()
+            if (accessLocked || city != selectedCity) return@addOnCompleteListener
+            if (!task.isSuccessful) {
+                Toast.makeText(this, "Could not load the area list. Try again.", Toast.LENGTH_LONG).show()
+                return@addOnCompleteListener
+            }
+            renderAreaPicker(title, AreaCatalog.read(this, city, task.result), targetSet, onUpdated)
+        }
+    }
+
+    private fun renderAreaPicker(
+        title: String,
+        areaPins: Map<String, String>,
+        targetSet: MutableSet<String>,
+        onUpdated: () -> Unit
+    ) {
+        val allAreas = areaPins.keys.sortedWith(String.CASE_INSENSITIVE_ORDER)
+        val selections = allAreas.filter { area -> targetSet.any { it.equals(area, ignoreCase = true) } }.toMutableSet()
+        if (allAreas.isEmpty()) {
+            AlertDialog.Builder(this).setTitle(title)
+                .setMessage("No areas are available for this city. Contact support.")
+                .setPositiveButton("Close", null)
+                .show()
+            return
+        }
         val visibleAreas = allAreas.toMutableList()
         val search = EditText(this).apply {
             hint = if (areaPins.isEmpty()) "Search areas" else "Search area or PIN code"
@@ -2075,24 +2034,6 @@ class MainActivity : AppCompatActivity() {
                 targetSet.clear()
                 targetSet.addAll(selections)
                 onUpdated()
-            }
-            .setNeutralButton("+ Custom Area") { _, _ ->
-                val input = EditText(this).apply {
-                    hint = "Enter custom area / pincode"
-                }
-                AlertDialog.Builder(this)
-                    .setTitle("Add Custom Area")
-                    .setView(input)
-                    .setPositiveButton("Add") { _, _ ->
-                        val custom = input.text.toString().trim()
-                        if (custom.isNotEmpty() && ',' !in custom) {
-                            targetSet.clear()
-                            targetSet.addAll(selections)
-                            targetSet.add(custom)
-                            onUpdated()
-                        }
-                    }
-                    .show()
             }
             .setNegativeButton("Clear All") { _, _ ->
                 targetSet.clear()

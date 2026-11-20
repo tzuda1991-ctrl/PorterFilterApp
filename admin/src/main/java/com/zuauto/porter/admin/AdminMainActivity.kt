@@ -1,6 +1,7 @@
 package com.zuauto.porter.admin
 
 import android.app.AlertDialog
+import com.zu.auth.AreaCatalog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -458,6 +459,15 @@ class AdminMainActivity : AppCompatActivity() {
                 bottomMargin = dp(8)
             }
         }
+        col.addView(Button(this).apply {
+            text = "Area management"
+            setOnClickListener {
+                val cities = AreaCatalog.cities.toTypedArray()
+                AlertDialog.Builder(this@AdminMainActivity).setTitle("Manage areas by city")
+                    .setItems(cities) { _, position -> showAreaManagement(cities[position]) }
+                    .setNegativeButton("Cancel", null).show()
+            }
+        })
         col.addView(searchIn)
 
         val scroll = ScrollView(this).apply {
@@ -508,6 +518,127 @@ class AdminMainActivity : AppCompatActivity() {
         scroll.addView(itemsCol)
         col.addView(scroll)
         contentFrame.addView(col)
+    }
+
+    private fun showAreaManagement(city: String) {
+        val loading = AlertDialog.Builder(this).setMessage("Loading $city areas…").show()
+        val document = AreaCatalog.document(city)
+        document.get(com.google.firebase.firestore.Source.SERVER).addOnCompleteListener { task ->
+            if (!loading.isShowing || isFinishing || isDestroyed) return@addOnCompleteListener
+            loading.dismiss()
+            if (!task.isSuccessful) {
+                Toast.makeText(this, "Could not load areas. Try again.", Toast.LENGTH_LONG).show()
+                return@addOnCompleteListener
+            }
+            val areas = AreaCatalog.read(this, city, task.result)
+            val names = areas.keys.sortedWith(String.CASE_INSENSITIVE_ORDER)
+            val visible = names.toMutableList()
+            val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, visible)
+            val panel = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(16), 0, dp(16), 0)
+            }
+            val search = EditText(this).apply {
+                hint = "Search name or PIN"
+                setSingleLine(true)
+            }
+            val list = ListView(this).apply { this.adapter = adapter }
+            panel.addView(search)
+            panel.addView(list, LinearLayout.LayoutParams(-1,
+                dp((resources.configuration.screenHeightDp / 2).coerceIn(100, 360))))
+            val dialog = AlertDialog.Builder(this)
+                .setTitle("$city · ${areas.size} areas")
+                .setView(panel)
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Add area") { _, _ -> showEditArea(city, areas, null) }
+                .show()
+            list.setOnItemClickListener { _, _, position, _ ->
+                val name = visible[position]
+                dialog.dismiss()
+                showEditArea(city, areas, name)
+            }
+            search.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    val query = s?.toString()?.trim().orEmpty()
+                    visible.clear()
+                    visible.addAll(names.filter {
+                        it.contains(query, ignoreCase = true) || areas[it].orEmpty().contains(query)
+                    })
+                    adapter.notifyDataSetChanged()
+                }
+                override fun afterTextChanged(s: android.text.Editable?) = Unit
+            })
+        }
+    }
+
+    private fun showEditArea(city: String, areas: Map<String, String>, original: String?) {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        val name = EditText(this).apply {
+            hint = "Area name"
+            setText(original.orEmpty())
+        }
+        val pins = EditText(this).apply {
+            hint = "PIN codes, separated by spaces"
+            setText(original?.let { areas[it] }.orEmpty())
+        }
+        panel.addView(name)
+        panel.addView(pins)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (original == null) "Add area in $city" else "Edit area")
+            .setView(panel)
+            .setNegativeButton("Back") { _, _ -> showAreaManagement(city) }
+            .setPositiveButton("Save", null)
+            .apply { if (original != null) setNeutralButton("Delete", null) }
+            .show()
+        fun saveAreas(updated: Map<String, String>) {
+            val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            val delete = dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+            save.isEnabled = false
+            delete?.isEnabled = false
+            val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            val document = AreaCatalog.document(city)
+            firestore.runTransaction { transaction ->
+                val latest = AreaCatalog.read(this, city, transaction.get(document))
+                check(latest == areas) { "Area list changed. Open it again." }
+                transaction.set(document, mapOf("areas" to updated))
+                true
+            }.addOnCompleteListener { task ->
+                if (!dialog.isShowing) return@addOnCompleteListener
+                save.isEnabled = true
+                delete?.isEnabled = true
+                if (task.isSuccessful) {
+                    dialog.dismiss()
+                    showAreaManagement(city)
+                } else {
+                    Toast.makeText(this, "Could not save changes. Reopen the city list and try again.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val title = name.text.toString().trim()
+            val codes = pins.text.toString().trim().split(Regex("[, ]+")).filter { it.isNotBlank() }
+            when {
+                title.isBlank() || title.length > 100 || ',' in title -> name.error = "Enter an area name without commas"
+                areas.keys.any { it != original && it.equals(title, ignoreCase = true) } -> name.error = "Area already exists"
+                codes.any { !it.matches(Regex("[0-9]{6}")) } -> pins.error = "Enter six-digit PIN codes"
+                else -> saveAreas(areas.toMutableMap().apply {
+                    original?.let(::remove)
+                    put(title, codes.distinct().joinToString(" "))
+                })
+            }
+        }
+        if (original != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Delete $original?")
+                .setMessage("This area will disappear from the driver area's selection list.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete") { _, _ -> saveAreas(areas - original) }
+                .show()
+        }
     }
 
     private fun driverValidity(driver: AdminCloudService.DriverItem): String {
