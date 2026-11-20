@@ -3,6 +3,8 @@ package com.zuauto.porter.admin
 import android.app.AlertDialog
 import com.zu.auth.AreaCatalog
 import com.zu.auth.CityCatalog
+import com.zu.auth.NotificationInbox
+import com.google.firebase.auth.FirebaseAuth
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -25,6 +27,7 @@ import androidx.appcompat.app.AppCompatActivity
 import java.util.Locale
 
 class AdminMainActivity : AppCompatActivity() {
+    private var notificationInbox: NotificationInbox? = null
 
     private var isAuthenticated = false
     private var currentTab = "DASHBOARD" // DASHBOARD, DRIVERS, KEYS, OTA, ORDERS
@@ -75,6 +78,8 @@ class AdminMainActivity : AppCompatActivity() {
     }
 
     private fun showLoginGate() {
+        notificationInbox?.close()
+        notificationInbox = null
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -172,7 +177,14 @@ class AdminMainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    override fun onDestroy() {
+        notificationInbox?.close()
+        super.onDestroy()
+    }
+
     private fun buildAdminDashboard() {
+        notificationInbox?.close()
+        notificationInbox = null
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#050811"))
@@ -230,6 +242,11 @@ class AdminMainActivity : AppCompatActivity() {
             setOnClickListener { refreshData() }
         }
         header.addView(titleCol)
+        FirebaseAuth.getInstance().currentUser?.uid?.let { uid ->
+            val inbox = NotificationInbox(this, uid, true, R.drawable.ic_inbox_bell)
+            notificationInbox = inbox
+            header.addView(inbox.button, LinearLayout.LayoutParams(dp(46), dp(46)).apply { marginEnd = dp(6) })
+        }
         header.addView(refreshBtn)
         root.addView(header)
 

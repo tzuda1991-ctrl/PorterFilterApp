@@ -137,10 +137,29 @@ function createDelivery(db, telegramSecret, logger = console) {
         return createHash("sha256").update(event.id).digest("hex");
     }
 
+    async function storeInboxItem(key, notice) {
+        const inbox = notice.audience === "admin" ? db.collection("notification_inbox_admin")
+            : notice.uid ? db.collection("notification_inboxes").doc(notice.uid).collection("items")
+                : db.collection("notification_inbox_driver");
+        try {
+            await inbox.doc(key).create({
+                title: notice.title,
+                body: notice.body,
+                details: notice.details ?? [],
+                createdAt: FieldValue.serverTimestamp(),
+            });
+        } catch (error) {
+            if (error.code !== 6 && error.code !== "already-exists") throw error;
+        }
+    }
+
     async function dispatch(event, notice) {
         if (!notice) return;
         const key = deliveryKey(event);
-        const deliveries = [deliverOnce(key, "fcm", () => deliverFcm(key, notice))];
+        const deliveries = [
+            storeInboxItem(key, notice),
+            deliverOnce(key, "fcm", () => deliverFcm(key, notice)),
+        ];
         if (notice.audience === "admin") {
             deliveries.push(deliverOnce(key, "telegram", () => sendTelegram(`${notice.title}\n${notice.body}`)));
         }

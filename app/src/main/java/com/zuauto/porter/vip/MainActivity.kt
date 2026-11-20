@@ -3,6 +3,8 @@ package com.zuauto.porter.vip
 import android.app.AlertDialog
 import com.zu.auth.AreaCatalog
 import com.zu.auth.CityCatalog
+import com.zu.auth.NotificationInbox
+import com.google.firebase.auth.FirebaseAuth
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -26,6 +28,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
+    private var notificationInbox: NotificationInbox? = null
 
     private var accountListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var areaListener: com.google.firebase.firestore.ListenerRegistration? = null
@@ -64,6 +67,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showGoogleLogin() {
+        notificationInbox?.close()
+        notificationInbox = null
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -225,6 +230,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDriverDashboard() {
+        notificationInbox?.close()
+        notificationInbox = null
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         selectedSpeed = prefs.getString("SWIPE_SPEED", "QUICK") ?: "QUICK"
         val profileCity = prefs.getString("USER_CITY", "Bengaluru") ?: "Bengaluru"
@@ -394,6 +401,11 @@ class MainActivity : AppCompatActivity() {
         topHeader.addView(logoImg)
         topHeader.addView(titleCol)
         topHeader.addView(plansButton, LinearLayout.LayoutParams(wrap, wrap).apply { marginStart = dp(5) })
+        FirebaseAuth.getInstance().currentUser?.uid?.let { uid ->
+            val inbox = NotificationInbox(this, uid, false, R.drawable.ic_inbox_bell)
+            notificationInbox = inbox
+            topHeader.addView(inbox.button, LinearLayout.LayoutParams(dp(46), dp(46)).apply { marginStart = dp(5) })
+        }
         headerCard.addView(topHeader, LinearLayout.LayoutParams(match, wrap))
         headerCard.addView(View(this).apply {
             setBackgroundColor(Color.parseColor("#E7EDF5"))
@@ -1193,6 +1205,8 @@ class MainActivity : AppCompatActivity() {
         if (isFinishing || isDestroyed || (accessLocked && (lockReason != "expired" || reason == "expired"))) return
         accessLocked = true
         lockReason = reason
+        notificationInbox?.close()
+        notificationInbox = null
         areaListener?.remove()
         areaListener = null
         purchaseDialog?.dismiss()
@@ -1234,6 +1248,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        notificationInbox?.close()
         areaListener?.remove()
         accountListener?.remove()
         restrictionDialog?.dismiss()

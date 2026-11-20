@@ -170,6 +170,18 @@ service cloud.firestore {
       allow delete: if ownGoogleAccount(uid);
     }
 
+    match /notification_inbox_admin/{id} {
+      allow read: if isAdmin();
+    }
+
+    match /notification_inbox_driver/{id} {
+      allow read: if activeDriverSession();
+    }
+
+    match /notification_inboxes/{uid}/items/{id} {
+      allow read: if ownGoogleAccount(uid) && activeDriverSession();
+    }
+
     match /notification_requests/{id} {
       allow create: if isAdmin()
         && request.resource.data.keys().hasOnly(['kind', 'planId'])

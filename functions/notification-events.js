@@ -5,21 +5,33 @@ function orderText(order) {
     return `A driver recorded an acceptance attempt${amount}.`;
 }
 
+function detail(label, value) {
+    return typeof value === "string" && value.trim() ? [label + ": " + value.trim().slice(0, 160)] : [];
+}
+
+function paymentDetails(payment) {
+    return [
+        ...detail("Plan", payment.planName),
+        ...(Number.isSafeInteger(payment.amount) ? ["Amount: ₹" + payment.amount] : []),
+    ];
+}
+
 function routeEvent(kind, before, after) {
     if (!after) return null;
     switch (kind) {
         case "driver":
             if (before?.driverNumber || !Number.isSafeInteger(after.driverNumber)) return null;
-            return { audience: "admin", title: "New driver ID", body: `zupro${after.driverNumber} was assigned.` };
+            return { audience: "admin", title: "New driver ID", body: `zupro${after.driverNumber} was assigned.`, details: [...detail("Driver", after.name), ...detail("City", after.city)] };
         case "order":
             if (after.status !== "Accepted") return null;
-            return { audience: "admin", title: "Order acceptance recorded", body: orderText(after) };
+            return { audience: "admin", title: "Order acceptance recorded", body: orderText(after), details: detail("Driver", after.driverName) };
         case "payment":
             if (!before && after.status === "pending") {
-                return { audience: "admin", title: "Payment proof submitted", body: "A new UTR is awaiting review in Payments." };
+                return { audience: "admin", title: "Payment proof submitted", body: "A new UTR is awaiting review in Payments.",
+                    details: [...detail("Driver", after.userName), ...paymentDetails(after), ...detail("UTR", after.utrNumber)] };
             }
             if (before?.status === "pending" && after.status === "approved" && typeof after.userId === "string") {
-                return { audience: "driver", uid: after.userId, title: "Payment approved", body: "Open ZU Smart to see your updated plan." };
+                return { audience: "driver", uid: after.userId, title: "Payment approved", body: "Open ZU Smart to see your updated plan.", details: paymentDetails(after) };
             }
             return null;
         case "version":
