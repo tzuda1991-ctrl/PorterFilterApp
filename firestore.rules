@@ -68,15 +68,8 @@ service cloud.firestore {
 
     function matchesCatalog(plan) {
       let catalog = get(/databases/$(database)/documents/subscription_plans/$(plan.planId)).data;
-      return plan.amount == catalog.price && plan.durationDays == catalog.durationDays
+      return catalog.get('enabled', true) == true && plan.amount == catalog.price && plan.durationDays == catalog.durationDays
         && plan.planName == catalog.name;
-    }
-
-    function matchesDefaultPlan(plan) {
-      return (plan.planId == 'plan-daily' && plan.amount == 49 && plan.durationDays == 1 && plan.planName == 'Daily Pass')
-        || (plan.planId == 'plan-weekly' && plan.amount == 149 && plan.durationDays == 7 && plan.planName == 'Weekly Boost')
-        || (plan.planId == 'plan-monthly' && plan.amount == 499 && plan.durationDays == 30 && plan.planName == 'Pro Monthly VIP')
-        || (plan.planId == 'plan-quarterly' && plan.amount == 1199 && plan.durationDays == 90 && plan.planName == 'Super VIP 90-Day');
     }
 
     match /payment_requests/{payment} {
@@ -87,7 +80,7 @@ service cloud.firestore {
         && request.resource.data.utrNumber is string
         && request.resource.data.utrNumber.size() > 0
         && request.resource.data.utrNumber.size() <= 64
-        && (matchesDefaultPlan(request.resource.data) || matchesCatalog(request.resource.data));
+        && matchesCatalog(request.resource.data);
     }
 
     match /orders/{order} {

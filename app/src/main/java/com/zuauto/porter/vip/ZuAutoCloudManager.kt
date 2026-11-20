@@ -82,31 +82,68 @@ object ZuAutoCloudManager {
 
     fun monitorAccount(
         context: Context,
+        onRestored: () -> Unit = {},
         onRestricted: (String) -> Unit
     ): com.google.firebase.firestore.ListenerRegistration? {
         val uid = auth.currentUser?.uid ?: return null
         val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
-        return com.google.firebase.firestore.FirebaseFirestore.getInstance()
+        var expiryTask: Runnable? = null
+        fun restrict(reason: String) {
+            val changes = prefs.edit().putBoolean("BOT_ACTIVE", false)
+            if (reason != "expired") {
+                changes.putString("DRIVER_ACCOUNT_STATUS", reason).putBoolean("IS_REGISTERED", false)
+            }
+            changes.apply()
+            context.stopService(Intent(context, FloatingControlService::class.java))
+            onRestricted(reason)
+        }
+        fun watchExpiry(expiry: Long) {
+            expiryTask?.let { mainHandler.removeCallbacks(it) }
+            if (expiry <= 0L) return
+            val remaining = expiry - System.currentTimeMillis()
+            if (remaining <= 0L) {
+                restrict("expired")
+            } else {
+                expiryTask = Runnable { restrict("expired") }.also {
+                    mainHandler.postDelayed(it, remaining)
+                }
+                onRestored()
+            }
+        }
+        val listener = com.google.firebase.firestore.FirebaseFirestore.getInstance()
             .collection("users").document(uid)
             .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { snapshot, error ->
                 val restriction = when {
                     error?.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> "restricted"
-                    snapshot == null || snapshot.metadata.isFromCache -> null
+                    snapshot == null || snapshot.metadata.isFromCache -> return@addSnapshotListener
                     !snapshot.exists() || snapshot.getString("status") == "deleted" -> "deleted"
                     snapshot.getString("status") in listOf("blocked", "suspended") -> "suspended"
                     snapshot.getLong("sessionAuthTime") == 0L -> "restricted"
                     else -> null
                 }
                 if (restriction != null) {
-                    prefs.edit()
-                        .putString("DRIVER_ACCOUNT_STATUS", restriction)
-                        .putBoolean("IS_REGISTERED", false)
-                        .putBoolean("BOT_ACTIVE", false)
-                        .apply()
-                    context.stopService(Intent(context, FloatingControlService::class.java))
-                    onRestricted(restriction)
+                    expiryTask?.let { mainHandler.removeCallbacks(it) }
+                    restrict(restriction)
+                } else if (snapshot != null) {
+                    fun expiryField(key: String): Long? = when (val value = snapshot.get(key)) {
+                        is com.google.firebase.Timestamp -> value.toDate().time
+                        is String -> runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
+                        else -> null
+                    }
+                    val expiry = expiryField("validUntil") ?: expiryField("planExpiresAt")
+                    if (expiry != null) {
+                        prefs.edit().putLong("PLAN_EXPIRES_AT_MILLIS", expiry).apply()
+                        watchExpiry(expiry)
+                    }
                 }
             }
+        mainHandler.post { watchExpiry(prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L)) }
+        return object : com.google.firebase.firestore.ListenerRegistration {
+            override fun remove() {
+                listener.remove()
+                expiryTask?.let { mainHandler.removeCallbacks(it) }
+            }
+        }
     }
 
     fun fetchSupportContact(callback: (com.zu.auth.SupportContact?) -> Unit) {
@@ -387,6 +424,7 @@ object ZuAutoCloudManager {
                         val path = doc.optString("name", "")
                         val id = path.substringAfterLast("/")
 
+                        if (fields.optJSONObject("enabled")?.optBoolean("booleanValue", true) == false) continue
                         val name = fields.optJSONObject("name")?.optString("stringValue", "Plan") ?: "Plan"
                         val price = fields.optJSONObject("price")?.optInt("integerValue", 199) ?: 199
                         val duration = fields.optJSONObject("durationDays")?.optInt("integerValue", 30) ?: 30
@@ -397,13 +435,6 @@ object ZuAutoCloudManager {
                     }
                 }
             } catch (_: Exception) {}
-
-            if (list.isEmpty()) {
-                list.add(SubscriptionPlan("plan-daily", "Daily Pass", 49, 1, "QUICK", "1-day unlimited high-speed auto booking"))
-                list.add(SubscriptionPlan("plan-weekly", "Weekly Boost", 149, 7, "POPULAR", "7-day fast order snatcher for peak hours"))
-                list.add(SubscriptionPlan("plan-monthly", "Pro Monthly VIP", 499, 30, "BEST VALUE", "30-day VIP filter + unlimited high fare orders"))
-                list.add(SubscriptionPlan("plan-quarterly", "Super VIP 90-Day", 1199, 90, "ENTERPRISE", "Quarterly automated dominance + priority support"))
-            }
 
             mainHandler.post { callback(list) }
         }

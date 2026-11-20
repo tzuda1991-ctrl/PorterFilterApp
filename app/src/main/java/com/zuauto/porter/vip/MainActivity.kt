@@ -27,6 +27,8 @@ class MainActivity : AppCompatActivity() {
 
     private var accountListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var accessLocked = false
+    private var lockReason: String? = null
+    private var purchaseDialog: AlertDialog? = null
     private var restrictionDialog: AlertDialog? = null
 
     private lateinit var minFareInput: EditText
@@ -1055,7 +1057,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(masterRoot)
         updateSystemStatusBar()
         accountListener?.remove()
-        accountListener = ZuAutoCloudManager.monitorAccount(this, ::lockDriverAccess)
+        accountListener = ZuAutoCloudManager.monitorAccount(this, onRestored = {
+            if (lockReason == "expired" && !isFinishing && !isDestroyed) recreate()
+        }, onRestricted = ::lockDriverAccess)
     }
 
     private fun supportMessage(contact: com.zu.auth.SupportContact?): String {
@@ -1079,31 +1083,42 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun lockDriverAccess(reason: String) {
-        if (accessLocked || isFinishing || isDestroyed) return
+        if (isFinishing || isDestroyed || (accessLocked && (lockReason != "expired" || reason == "expired"))) return
         accessLocked = true
-        getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE).edit()
-            .putBoolean("IS_REGISTERED", false)
-            .putBoolean("BOT_ACTIVE", false)
-            .apply()
+        lockReason = reason
+        purchaseDialog?.dismiss()
+        restrictionDialog?.dismiss()
+        val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("BOT_ACTIVE", false).apply()
         stopService(Intent(this, FloatingControlService::class.java))
-        accountListener?.remove()
-        accountListener = null
+        if (reason != "expired") {
+            prefs.edit().putBoolean("IS_REGISTERED", false).apply()
+            accountListener?.remove()
+            accountListener = null
+        }
         setContentView(FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#10264D")) })
 
         val title = when (reason) {
+            "expired" -> "Plan expired"
             "suspended" -> "Account blocked"
             "deleted" -> "Driver profile removed"
             else -> "Driver access restricted"
         }
-        val explanation = "Contact support for help."
+        val explanation = if (reason == "expired") "Renew your plan to restore access." else "Contact support for help."
         val dialog = AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage("$explanation\n\nLoading support contact…")
             .setCancelable(false)
             .setPositiveButton("Close app") { _, _ -> finishAndRemoveTask() }
+            .apply { if (reason == "expired") setNeutralButton("Renew plan", null) }
             .create()
         restrictionDialog = dialog
         dialog.show()
+        if (reason == "expired") {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                renderDriverProfile(synced = true)
+            }
+        }
         dialog.setCanceledOnTouchOutside(false)
         ZuAutoCloudManager.fetchSupportContact { contact ->
             if (dialog.isShowing) dialog.setMessage("$explanation\n\n${supportMessage(contact)}")
@@ -1113,6 +1128,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         accountListener?.remove()
         restrictionDialog?.dismiss()
+        purchaseDialog?.dismiss()
         super.onDestroy()
     }
 
@@ -1570,6 +1586,12 @@ class MainActivity : AppCompatActivity() {
         // Fetch Plans from Firestore
         if (canPurchase) ZuAutoCloudManager.fetchSubscriptionPlans { plans ->
             plansListContainer.removeAllViews()
+            if (plans.isEmpty()) {
+                plansListContainer.addView(TextView(this).apply {
+                    text = "No plans available. Contact support."
+                    setTextColor(Color.WHITE)
+                })
+            }
             for (p in plans) {
                 val pCard = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -1652,13 +1674,14 @@ class MainActivity : AppCompatActivity() {
         mainDialog = AlertDialog.Builder(this)
             .setView(root)
             .create()
+        purchaseDialog = mainDialog
         mainDialog.show()
     }
 
     // ---------------- UPI CHECKOUT & UTR PROOF SUBMISSION DIALOG ----------------
     private fun showUpiCheckoutDialog(plan: ZuAutoCloudManager.SubscriptionPlan) {
         ZuAutoCloudManager.fetchPaymentSettings { upiId, qrUrl ->
-            if (accessLocked || isFinishing || isDestroyed) return@fetchPaymentSettings
+            if ((accessLocked && lockReason != "expired") || isFinishing || isDestroyed) return@fetchPaymentSettings
             if (upiId.isNullOrBlank()) {
                 Toast.makeText(this, "Payment settings unavailable. Try again later.", Toast.LENGTH_LONG).show()
             } else {
@@ -1815,6 +1838,7 @@ class MainActivity : AppCompatActivity() {
             .setView(ScrollView(this).apply { addView(root) })
             .setNegativeButton("Cancel", null)
             .create()
+        purchaseDialog = checkoutDialog
         checkoutDialog.show()
     }
 
@@ -1922,6 +1946,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!accessLocked && ::footerSystemText.isInitialized && ZuAutoCloudManager.isUserRegistered(this)) {
+            val expiry = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE).getLong("PLAN_EXPIRES_AT_MILLIS", 0L)
+            if (expiry in 1..System.currentTimeMillis()) lockDriverAccess("expired")
+        }
         if (accessLocked || !::footerSystemText.isInitialized || !ZuAutoCloudManager.isUserRegistered(this)) return
         updateSystemStatusBar()
         if (ZuAutoCloudManager.isUserRegistered(this)) {

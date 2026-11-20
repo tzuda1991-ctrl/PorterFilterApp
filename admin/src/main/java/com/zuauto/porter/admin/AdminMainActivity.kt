@@ -996,6 +996,107 @@ class AdminMainActivity : AppCompatActivity() {
     }
 
     // ---------------- PAYMENTS VERIFICATION TAB ----------------
+    private fun showPlanManagement() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(12))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Plan management")
+            .setView(ScrollView(this).apply { addView(panel) })
+            .setNegativeButton("Close", null)
+            .setPositiveButton("Add plan") { _, _ -> showEditPlan(null) }
+            .show()
+        val plans = com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("subscription_plans")
+        plans.get(com.google.firebase.firestore.Source.SERVER).addOnCompleteListener { task ->
+            if (!dialog.isShowing) return@addOnCompleteListener
+            if (!task.isSuccessful || task.result.isEmpty) {
+                panel.addView(TextView(this).apply {
+                    text = if (task.isSuccessful) "No plans yet. Add a plan to show it in the driver app."
+                        else "Could not load plans. Reopen Plan management to retry."
+                })
+                return@addOnCompleteListener
+            }
+            task.result.documents.sortedBy { it.getLong("price") ?: Long.MAX_VALUE }.forEach { plan ->
+                panel.addView(Button(this).apply {
+                    val name = plan.getString("name").orEmpty()
+                    val days = plan.getLong("durationDays") ?: 0
+                    val price = plan.getLong("price") ?: 0
+                    val state = if (plan.getBoolean("enabled") == false) "Hidden" else "Visible"
+                    text = "$name · ₹$price · $days days\n$state"
+                    isAllCaps = false
+                    setOnClickListener {
+                        dialog.dismiss()
+                        showEditPlan(plan)
+                    }
+                }, LinearLayout.LayoutParams(-1, -2))
+            }
+        }
+    }
+
+    private fun showEditPlan(plan: com.google.firebase.firestore.DocumentSnapshot?) {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        fun field(label: String, value: String, type: Int): EditText {
+            form.addView(TextView(this).apply { text = label })
+            return EditText(this).apply {
+                inputType = type
+                setText(value)
+                form.addView(this)
+            }
+        }
+        val name = field("Plan name", plan?.getString("name").orEmpty(), InputType.TYPE_CLASS_TEXT)
+        val amount = field("Price (₹)", plan?.getLong("price")?.toString().orEmpty(), InputType.TYPE_CLASS_NUMBER)
+        val days = field("Validity (days)", plan?.getLong("durationDays")?.toString().orEmpty(), InputType.TYPE_CLASS_NUMBER)
+        val details = field("Description", plan?.getString("description").orEmpty(),
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE)
+        val enabled = Switch(this).apply {
+            text = "Show in driver app"
+            isChecked = plan?.getBoolean("enabled") != false
+        }
+        form.addView(enabled)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (plan == null) "Add plan" else "Edit plan")
+            .setView(ScrollView(this).apply { addView(form) })
+            .setNegativeButton("Back") { _, _ -> showPlanManagement() }
+            .setPositiveButton("Save", null)
+            .show()
+        val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        save.setOnClickListener {
+            val title = name.text.toString().trim()
+            val price = amount.text.toString().toLongOrNull()
+            val duration = days.text.toString().toLongOrNull()
+            when {
+                title.isEmpty() -> name.error = "Enter a plan name"
+                price == null || price !in 1..1_000_000 -> amount.error = "Enter a valid price"
+                duration == null || duration !in 1..3650 -> days.error = "Enter 1 to 3650 days"
+                else -> {
+                    val document = plan?.reference ?: com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                        .collection("subscription_plans").document()
+                    save.isEnabled = false
+                    document.set(mapOf(
+                        "name" to title,
+                        "price" to price,
+                        "durationDays" to duration,
+                        "description" to details.text.toString().trim(),
+                        "enabled" to enabled.isChecked
+                    ), com.google.firebase.firestore.SetOptions.merge()).addOnCompleteListener {
+                        if (!dialog.isShowing) return@addOnCompleteListener
+                        save.isEnabled = true
+                        if (it.isSuccessful) {
+                            dialog.dismiss()
+                            showPlanManagement()
+                        } else {
+                            Toast.makeText(this, "Could not save plan. Try again.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun showSupportSettings() {
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1113,6 +1214,10 @@ class AdminMainActivity : AppCompatActivity() {
         col.addView(Button(this).apply {
             text = "SUPPORT CONTACT"
             setOnClickListener { showSupportSettings() }
+        })
+        col.addView(Button(this).apply {
+            text = "PLAN MANAGEMENT"
+            setOnClickListener { showPlanManagement() }
         })
         col.addView(headTv)
 
