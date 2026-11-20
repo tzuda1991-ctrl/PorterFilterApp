@@ -1,0 +1,57 @@
+"use strict";
+
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { commands, isOperator, parseCommand } = require("./telegram-admin");
+
+const privateMessage = id => ({ chat: { id, type: "private" }, from: { id, is_bot: false } });
+
+test("only the configured human in their private chat can use admin commands", () => {
+    assert.equal(isOperator({ message: privateMessage(42) }, "42"), true);
+    assert.equal(isOperator({ message: privateMessage(99) }, "42"), false);
+    assert.equal(isOperator({ message: { ...privateMessage(42), chat: { id: -42, type: "supergroup" } } }, "-42"), false);
+    assert.equal(isOperator({ callback_query: { message: privateMessage(42), from: { id: 99, is_bot: false } } }, "42"), false);
+    assert.equal(isOperator({ callback_query: { message: privateMessage(42), from: { id: 42, is_bot: false } } }, "42"), true);
+});
+
+test("command parser preserves multiword and multiline form fields", () => {
+    assert.deepEqual(parseCommand("/save_plan@ZuBot new | Basic Starter | 25 | 7 | on | Line one\nLine two"), {
+        command: "save_plan", args: ["new", "Basic Starter", "25", "7", "on", "Line one\nLine two"],
+    });
+});
+
+function storage(records) {
+    const db = { doc: path => path, collection: name => ({ doc: id => name + "/" + id }) };
+    const writes = [];
+    const tx = {
+        get: async ref => ({
+            ref, exists: Object.hasOwn(records, ref), id: ref.split("/").at(-1), get: key => records[ref]?.[key],
+        }),
+        set: (ref, values) => writes.push({ ref, values }),
+        update: (ref, values) => writes.push({ ref, values }),
+    };
+    return { service: commands(db), tx, writes };
+}
+
+test("approval rechecks status and writes the plan and exact payment together", async () => {
+    const { service, tx, writes } = storage({
+        "payment_requests/a": { status: "pending", userId: "driver-a", planName: "Weekly", durationDays: 7 },
+        "payment_requests/b": { status: "approved" },
+        "users/driver-a": { status: "active", planName: "Weekly", validUntil: "2090-01-01T00:00:00.000Z" },
+    });
+    assert.equal(await service.write(tx, "approve", ["a"]), "Payment approved and plan activated.");
+    assert.equal(writes[0].ref, "users/driver-a");
+    assert.equal(writes[0].values.validUntil, "2090-01-08T00:00:00.000Z");
+    assert.equal(writes[1].ref, "payment_requests/a");
+    assert.equal(writes[1].values.status, "approved");
+    await assert.rejects(service.write(tx, "reject", ["b"]), /already been reviewed/);
+    assert.equal(writes.length, 2);
+});
+
+test("editing a default city area keeps the rest of the bundled catalog", async () => {
+    const { service, tx, writes } = storage({});
+    await service.write(tx, "remove_area", ["Delhi NCR", "Okhla"]);
+    assert.equal(writes[0].ref, "area_catalog/Delhi NCR");
+    assert.equal(writes[0].values.areas.Dwarka, "");
+    assert.equal(Object.hasOwn(writes[0].values.areas, "Okhla"), false);
+});

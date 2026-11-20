@@ -4,6 +4,7 @@ const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { setTimeout: delay } = require("node:timers/promises");
 const { createDelivery } = require("./delivery");
+const { startTelegramAdmin } = require("./telegram-admin");
 const { routeEvent } = require("./notification-events");
 
 function pendingEvents(kind, document, since) {
@@ -133,12 +134,15 @@ async function run() {
         });
     });
 
+    const telegramAbort = new AbortController();
+    const telegramAdmin = startTelegramAdmin(db, process.env.ZU_TELEGRAM_BOT_TOKEN ?? "", telegramAbort.signal);
     function shutdown() {
         stopping = true;
+        telegramAbort.abort();
         unsubscribers.forEach((unsubscribe) => unsubscribe());
         const timeout = setTimeout(() => process.exit(0), 8000);
         timeout.unref();
-        void Promise.allSettled([...pending.values()]).then(() => process.exit(0));
+        void Promise.allSettled([...pending.values(), telegramAdmin]).then(() => process.exit(0));
     }
     process.once("SIGTERM", shutdown);
     process.once("SIGINT", shutdown);
