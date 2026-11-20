@@ -75,6 +75,8 @@ object ZuAutoCloudManager {
 
     fun isSubscriptionActive(context: Context): Boolean {
         val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
+        val accountStatus = prefs.getString("DRIVER_ACCOUNT_STATUS", "active")
+        if (accountStatus == "suspended" || accountStatus == "deleted") return false
         val expiresAt = prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L)
         if (expiresAt == 0L) return true
         return System.currentTimeMillis() < expiresAt
@@ -231,7 +233,8 @@ object ZuAutoCloudManager {
                 conn.connectTimeout = 6000
                 conn.readTimeout = 6000
 
-                if (conn.responseCode in 200..299) {
+                val code = conn.responseCode
+                if (code in 200..299) {
                     val reader = BufferedReader(InputStreamReader(conn.inputStream))
                     val resp = reader.readText()
                     reader.close()
@@ -244,6 +247,16 @@ object ZuAutoCloudManager {
                     fun parseDate(value: String): Long? = runCatching {
                         java.time.Instant.parse(value).toEpochMilli()
                     }.getOrNull()
+
+                    val status = value("status").lowercase(Locale.ROOT)
+                    val editor = prefs.edit().putString(
+                        "DRIVER_ACCOUNT_STATUS", if (status == "suspended" || status == "blocked") "suspended" else "active"
+                    )
+                    mapOf("name" to "USER_NAME", "phone" to "USER_PHONE",
+                        "city" to "USER_CITY", "vehicle" to "USER_VEHICLE").forEach { (field, preference) ->
+                        value(field).takeIf { it.isNotBlank() }?.let { editor.putString(preference, it) }
+                    }
+                    editor.apply()
 
                     val planName = value("planName").ifBlank { value("plan") }
                     val expires = parseDate(value("validUntil")) ?: parseDate(value("planExpiresAt"))
@@ -260,6 +273,9 @@ object ZuAutoCloudManager {
                             .putInt("PLAN_DURATION_DAYS", value("subscriptionDurationDays").toIntOrNull() ?: 0)
                             .apply()
                     }
+                    mainHandler.post { onSynced(true) }
+                } else if (code == 404) {
+                    prefs.edit().putString("DRIVER_ACCOUNT_STATUS", "deleted").apply()
                     mainHandler.post { onSynced(true) }
                 } else {
                     mainHandler.post { onSynced(false) }

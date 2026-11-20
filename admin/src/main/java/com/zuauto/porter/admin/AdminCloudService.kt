@@ -156,8 +156,8 @@ object AdminCloudService {
                         val doc = item.optJSONObject("document") ?: continue
                         val f = doc.optJSONObject("fields") ?: continue
                         val path = doc.optString("name", "")
-                        val uid = f.optJSONObject("uid")?.optString("stringValue")
-                            ?: path.substringAfterLast("/")
+                        val uid = path.substringAfterLast("/")
+                        if (uid.isBlank()) continue
                         val name = f.optJSONObject("name")?.optString("stringValue", "Driver") ?: "Driver"
                         val phone = f.optJSONObject("phone")?.optString("stringValue", "") ?: ""
                         val city = f.optJSONObject("city")?.optString("stringValue", "Bengaluru") ?: "Bengaluru"
@@ -174,63 +174,73 @@ object AdminCloudService {
     }
 
 
-    // ---------------- UPDATE DRIVER STATUS ----------------
-    fun updateDriverStatus(uid: String, newStatus: String, callback: () -> Unit) {
+    fun updateDriverStatus(uid: String, status: String, callback: (Boolean) -> Unit) =
+        changeDriver(uid, mapOf("status" to status), callback)
+
+    fun editDriver(uid: String, name: String, phone: String, city: String, vehicle: String, callback: (Boolean) -> Unit) =
+        changeDriver(uid, mapOf("name" to name, "phone" to phone, "city" to city, "vehicle" to vehicle), callback)
+
+    fun extendDriverSubscription(driver: DriverItem, days: Int, callback: (Boolean) -> Unit) {
+        val now = java.time.Instant.now()
+        val previous = runCatching { java.time.Instant.parse(driver.planExpiresAt) }.getOrDefault(now)
+        val expiry = maxOf(now, previous).plusSeconds(days.toLong() * 86400L).toString()
+        changeDriver(driver.uid, mapOf("validUntil" to expiry, "planExpiresAt" to expiry), callback,
+            expectedExpiry = driver.planExpiresAt)
+    }
+
+    fun deleteDriver(uid: String, callback: (Boolean) -> Unit) =
+        changeDriver(uid, emptyMap(), callback)
+
+    private fun changeDriver(
+        uid: String,
+        fields: Map<String, String>,
+        callback: (Boolean) -> Unit,
+        expectedExpiry: String? = null
+    ) {
         executor.execute {
-            try {
-                val url = URL("$FIRESTORE_BASE_URL/users/$uid?updateMask.fieldPaths=status&key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "PATCH"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.doOutput = true
-                val body = JSONObject().apply {
-                    val f = JSONObject()
-                    f.put("status", JSONObject().put("stringValue", newStatus))
-                    put("fields", f)
+            val success = runCatching {
+                val driverUrl = "$FIRESTORE_BASE_URL/users/${android.net.Uri.encode(uid)}"
+                val snapshot = URL("$driverUrl?key=$FIREBASE_API_KEY").openConnection() as HttpURLConnection
+                val document = try {
+                    snapshot.connectTimeout = 8000
+                    snapshot.readTimeout = 8000
+                    snapshot.inputStream.bufferedReader().use { JSONObject(it.readText()) }
+                } finally {
+                    snapshot.disconnect()
                 }
-                val writer = OutputStreamWriter(conn.outputStream)
-                writer.write(body.toString())
-                writer.flush()
-                writer.close()
-                conn.responseCode
-            } catch (_: Exception) {}
-            mainHandler.post { callback() }
+                if (expectedExpiry != null) {
+                    val expiry = document.getJSONObject("fields").optJSONObject("validUntil")
+                        ?.optString("stringValue").orEmpty()
+                    check(expiry == expectedExpiry) { "Driver validity changed. Refresh and retry." }
+                }
+                val updateTime = android.net.Uri.encode(document.getString("updateTime"))
+                val mask = fields.keys.joinToString("") { "&updateMask.fieldPaths=$it" }
+                val connection = URL("$driverUrl?key=$FIREBASE_API_KEY&currentDocument.updateTime=$updateTime$mask")
+                    .openConnection() as HttpURLConnection
+                try {
+                    connection.connectTimeout = 8000
+                    connection.readTimeout = 8000
+                    connection.requestMethod = if (fields.isEmpty()) "DELETE" else "PATCH"
+                    if (fields.isNotEmpty()) {
+                        connection.doOutput = true
+                        connection.setRequestProperty("Content-Type", "application/json")
+                        val values = JSONObject()
+                        fields.forEach { (key, value) ->
+                            values.put(key, JSONObject().put("stringValue", value))
+                        }
+                        connection.outputStream.bufferedWriter().use {
+                            it.write(JSONObject().put("fields", values).toString())
+                        }
+                    }
+                    connection.responseCode in 200..299
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrDefault(false)
+            mainHandler.post { callback(success) }
         }
     }
 
-    // ---------------- EXTEND DRIVER SUBSCRIPTION ----------------
-    fun extendDriverSubscription(uid: String, daysToAdd: Int, plan: String, callback: () -> Unit) {
-        executor.execute {
-            try {
-                val cal = Calendar.getInstance()
-                cal.add(Calendar.DAY_OF_YEAR, daysToAdd)
-                val expIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(cal.time)
-                val url = URL("$FIRESTORE_BASE_URL/users/$uid?updateMask.fieldPaths=planExpiresAt&updateMask.fieldPaths=validUntil&updateMask.fieldPaths=plan&updateMask.fieldPaths=planName&updateMask.fieldPaths=status&updateMask.fieldPaths=subscriptionStatus&key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "PATCH"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.doOutput = true
-                val body = JSONObject().apply {
-                    val f = JSONObject()
-                    f.put("planExpiresAt", JSONObject().put("stringValue", expIso))
-                    f.put("validUntil", JSONObject().put("stringValue", expIso))
-                    f.put("plan", JSONObject().put("stringValue", plan))
-                    f.put("planName", JSONObject().put("stringValue", plan))
-                    f.put("status", JSONObject().put("stringValue", "active"))
-                    f.put("subscriptionStatus", JSONObject().put("stringValue", "active"))
-                    put("fields", f)
-                }
-                val writer = OutputStreamWriter(conn.outputStream)
-                writer.write(body.toString())
-                writer.flush()
-                writer.close()
-                conn.responseCode
-            } catch (_: Exception) {}
-            mainHandler.post { callback() }
-        }
-    }
-
-    // ---------------- FETCH ORDERS VIA RUNQUERY ----------------
     fun fetchOrders(callback: (List<OrderItem>) -> Unit) {
         executor.execute {
             val list = mutableListOf<OrderItem>()

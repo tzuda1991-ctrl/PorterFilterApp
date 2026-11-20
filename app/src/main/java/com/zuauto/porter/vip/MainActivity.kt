@@ -1369,7 +1369,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun updatePlanBadge() {
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
-        planBadge.text = prefs.getString("USER_PLAN", "TRIAL") ?: "TRIAL"
+        val status = prefs.getString("DRIVER_ACCOUNT_STATUS", "active")
+        planBadge.text = when (status) {
+            "suspended" -> "Blocked"
+            "deleted" -> "Deleted"
+            else -> prefs.getString("USER_PLAN", "TRIAL") ?: "TRIAL"
+        }
+        val driverName = prefs.getString("USER_NAME", "Driver") ?: "Driver"
+        userBox.text = "$driverName ▾"
     }
 
     private fun renderDriverProfile(synced: Boolean) {
@@ -1387,7 +1394,9 @@ class MainActivity : AppCompatActivity() {
         val isExpired = expiresAtMillis in 1..now
         val isActive = expiresAtMillis == 0L || expiresAtMillis > now
         val renewalWindow = java.util.concurrent.TimeUnit.HOURS.toMillis(48)
-        val canPurchase = synced && (isTrial || isExpired ||
+        val status = prefs.getString("DRIVER_ACCOUNT_STATUS", "active")
+        val accountAvailable = status != "suspended" && status != "deleted"
+        val canPurchase = synced && accountAvailable && (isTrial || isExpired ||
             (expiresAtMillis > now && expiresAtMillis - now <= renewalWindow))
         val durationDays = prefs.getInt("PLAN_DURATION_DAYS", 0)
         val startedAt = prefs.getLong("PLAN_STARTED_AT_MILLIS", 0L)
@@ -1483,6 +1492,11 @@ class MainActivity : AppCompatActivity() {
             textSize = 10f
             setTextColor(Color.parseColor("#CBD5E1"))
             setPadding(0, dp(2), 0, 0)
+        }
+        if (!accountAvailable) {
+            valTitle.text = if (status == "deleted") "Driver profile removed" else "Driver account blocked"
+            valTitle.setTextColor(Color.parseColor("#FCA5A5"))
+            valSub.text = "Contact the admin for account access."
         }
         validityCard.addView(valTitle)
         validityCard.addView(valSub)

@@ -435,7 +435,7 @@ class AdminMainActivity : AppCompatActivity() {
         }
 
         val searchIn = EditText(this).apply {
-            hint = "Search driver name or phone..."
+            hint = "Search name, phone, city or driver ID"
             setHintTextColor(Color.parseColor("#64748B"))
             setTextColor(Color.WHITE)
             textSize = 12f
@@ -456,115 +456,169 @@ class AdminMainActivity : AppCompatActivity() {
         }
         val itemsCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
-        if (driverList.isEmpty()) {
-            val emptyTv = TextView(this).apply {
-                text = "Loading drivers from cloud..."
-                setTextColor(Color.parseColor("#94A3B8"))
-                textSize = 12f
-                gravity = Gravity.CENTER
-                setPadding(0, dp(40), 0, dp(40))
+        fun renderMatches(query: String) {
+            itemsCol.removeAllViews()
+            val matches = driverList.filter { driver ->
+                listOf(driver.name, driver.phone, driver.uid, driver.city).any {
+                    it.contains(query.trim(), ignoreCase = true)
+                }
             }
-            itemsCol.addView(emptyTv)
-        } else {
-            for (d in driverList) {
-                val card = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(12), dp(10), dp(12), dp(10))
-                    background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#091020"))
-                        cornerRadius = dp(12).toFloat()
-                        setStroke(dp(1), Color.parseColor("#1E293B"))
-                    }
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { bottomMargin = dp(8) }
-                }
-
-                val row1 = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                }
-                val nameTv = TextView(this).apply {
-                    text = d.name
-                    textSize = 13f
-                    typeface = Typeface.DEFAULT_BOLD
+            if (matches.isEmpty()) {
+                itemsCol.addView(TextView(this).apply {
+                    text = "No matching drivers"
+                    setTextColor(Color.parseColor("#CBD5E1"))
+                    setPadding(dp(12), dp(20), dp(12), dp(20))
+                })
+            }
+            for (driver in matches) {
+                itemsCol.addView(TextView(this).apply {
+                    val status = if (driver.status.equals("active", true)) "Active" else "Blocked"
+                    text = "${driver.name}   ›\n${driver.phone} · ${driver.city}\n$status · ${driver.plan}"
+                    textSize = 14f
                     setTextColor(Color.WHITE)
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                }
-                val statusBadge = TextView(this).apply {
-                    text = d.status.uppercase(Locale.US)
-                    textSize = 9f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(if (d.status.equals("active", true)) Color.parseColor("#34D399") else Color.parseColor("#F87171"))
-                    setPadding(dp(6), dp(2), dp(6), dp(2))
+                    setPadding(dp(14), dp(12), dp(14), dp(12))
                     background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#1E293B"))
-                        cornerRadius = dp(6).toFloat()
+                        setColor(Color.parseColor("#101B30"))
+                        cornerRadius = dp(14).toFloat()
+                        setStroke(dp(1), Color.parseColor("#314664"))
                     }
-                }
-                row1.addView(nameTv)
-                row1.addView(statusBadge)
-
-                val phoneTv = TextView(this).apply {
-                    text = "${d.phone} • ${d.city} • ${d.plan.uppercase(Locale.US)}"
-                    textSize = 10f
-                    setTextColor(Color.parseColor("#94A3B8"))
-                    setPadding(0, dp(2), 0, dp(6))
-                }
-
-                val actionsRow = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                }
-
-                val extendBtn = Button(this).apply {
-                    text = "+30 Days"
-                    textSize = 10f
-                    setTextColor(Color.WHITE)
-                    background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#0284C7"))
-                        cornerRadius = dp(8).toFloat()
-                    }
-                    layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { rightMargin = dp(4) }
-                    setOnClickListener {
-                        AdminCloudService.extendDriverSubscription(d.uid, 30, "vip") {
-                            Toast.makeText(this@AdminMainActivity, "Extended 30 Days for ${d.name}", Toast.LENGTH_SHORT).show()
-                            refreshData()
-                        }
-                    }
-                }
-
-                val toggleBtn = Button(this).apply {
-                    val isActive = d.status.equals("active", true)
-                    text = if (isActive) "Suspend" else "Activate"
-                    textSize = 10f
-                    setTextColor(Color.WHITE)
-                    background = GradientDrawable().apply {
-                        setColor(if (isActive) Color.parseColor("#DC2626") else Color.parseColor("#059669"))
-                        cornerRadius = dp(8).toFloat()
-                    }
-                    layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { leftMargin = dp(4) }
-                    setOnClickListener {
-                        val next = if (isActive) "suspended" else "active"
-                        AdminCloudService.updateDriverStatus(d.uid, next) {
-                            refreshData()
-                        }
-                    }
-                }
-
-                actionsRow.addView(extendBtn)
-                actionsRow.addView(toggleBtn)
-
-                card.addView(row1)
-                card.addView(phoneTv)
-                card.addView(actionsRow)
-                itemsCol.addView(card)
+                    layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(9) }
+                    setOnClickListener { showDriverDetails(driver) }
+                })
             }
         }
+        renderMatches("")
+        searchIn.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                renderMatches(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
 
         scroll.addView(itemsCol)
         col.addView(scroll)
         contentFrame.addView(col)
+    }
+
+    private fun showDriverDetails(driver: AdminCloudService.DriverItem) {
+        val blocked = !driver.status.equals("active", true)
+        val expiry = runCatching {
+            java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, h:mm a")
+                .withZone(java.time.ZoneId.systemDefault())
+                .format(java.time.Instant.parse(driver.planExpiresAt))
+        }.getOrDefault("Unavailable")
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(10))
+        }
+        panel.addView(TextView(this).apply {
+            text = "Driver ID: ${driver.uid}\nPhone: ${driver.phone}\nCity: ${driver.city}\nVehicle: ${driver.vehicle}\nStatus: ${if (blocked) "Blocked" else "Active"}\nPlan: ${driver.plan}\nValid until: $expiry"
+            textSize = 15f
+            setPadding(0, 0, 0, dp(12))
+        })
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(driver.name)
+            .setView(ScrollView(this).apply { addView(panel) })
+            .setNegativeButton("Close", null)
+            .create()
+
+        fun action(label: String, onClick: () -> Unit) {
+            panel.addView(Button(this).apply {
+                text = label
+                isAllCaps = false
+                minimumHeight = dp(48)
+                setOnClickListener { onClick() }
+            })
+        }
+
+        action("Edit profile") {
+            dialog.dismiss()
+            showEditDriver(driver)
+        }
+        action("Extend validity") {
+            dialog.dismiss()
+            AlertDialog.Builder(this)
+                .setTitle("Extend validity for ${driver.name}")
+                .setItems(arrayOf("7 days", "30 days", "90 days")) { _, index ->
+                    AdminCloudService.extendDriverSubscription(driver, intArrayOf(7, 30, 90)[index]) {
+                        finishDriverChange(it, "Validity extended.")
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+        val toggle = if (blocked) "Unblock driver" else "Block driver"
+        action(toggle) {
+            AlertDialog.Builder(this)
+                .setTitle("$toggle?")
+                .setMessage(driver.name)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton(toggle) { _, _ ->
+                    dialog.dismiss()
+                    AdminCloudService.updateDriverStatus(driver.uid, if (blocked) "active" else "suspended") {
+                        finishDriverChange(it, if (blocked) "Driver unblocked." else "Driver blocked.")
+                    }
+                }
+                .show()
+        }
+        action("Delete profile") {
+            AlertDialog.Builder(this)
+                .setTitle("Delete ${driver.name}?")
+                .setMessage("This permanently removes driver profile ${driver.uid}. Payment and order records stay in history.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete profile") { _, _ ->
+                    dialog.dismiss()
+                    AdminCloudService.deleteDriver(driver.uid) { finishDriverChange(it, "Driver profile deleted.") }
+                }
+                .show()
+        }
+        dialog.show()
+    }
+
+    private fun showEditDriver(driver: AdminCloudService.DriverItem) {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        fun field(label: String, value: String, type: Int = InputType.TYPE_CLASS_TEXT): EditText {
+            panel.addView(TextView(this).apply { text = label })
+            return EditText(this).apply {
+                inputType = type
+                setText(value)
+                panel.addView(this)
+            }
+        }
+        val name = field("Driver name", driver.name)
+        val phone = field("Phone", driver.phone, InputType.TYPE_CLASS_PHONE)
+        val city = field("City", driver.city)
+        val vehicle = field("Vehicle", driver.vehicle)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Edit driver")
+            .setView(ScrollView(this).apply { addView(panel) })
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .show()
+        val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        save.setOnClickListener {
+            val values = listOf(name, phone, city, vehicle).map { it.text.toString().trim() }
+            val missing = values.indexOfFirst { it.isEmpty() }
+            if (missing >= 0) {
+                listOf(name, phone, city, vehicle)[missing].error = "Required"
+                return@setOnClickListener
+            }
+            save.isEnabled = false
+            AdminCloudService.editDriver(driver.uid, values[0], values[1], values[2], values[3]) { success ->
+                save.isEnabled = true
+                if (success) dialog.dismiss()
+                finishDriverChange(success, "Profile updated.")
+            }
+        }
+    }
+
+    private fun finishDriverChange(success: Boolean, message: String) {
+        Toast.makeText(this, if (success) message else "Change failed. Refresh and try again.", Toast.LENGTH_LONG).show()
+        refreshData()
     }
 
     // ---------------- 3. KEYS TAB ----------------
