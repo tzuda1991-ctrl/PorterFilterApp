@@ -329,6 +329,7 @@ class MainActivity : AppCompatActivity() {
         addNavItem("⚙️", "Settings", false) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
+        addNavItem("🔔", "Notifications", false) { com.zu.auth.PushNotifications.showSetup(this) }
         addNavItem("🔄", "Update", false) {
             Toast.makeText(this, "Checking for ZuAuto updates...", Toast.LENGTH_SHORT).show()
             ZuAutoCloudManager.checkRemoteAppVersion(this) { isForce, newVer, notes, dlUrl ->
@@ -1092,6 +1093,7 @@ class MainActivity : AppCompatActivity() {
             Triple("Porter", "Open Porter Partner", R.drawable.ic_dashboard_porter),
             Triple("Support", "Contact support", android.R.drawable.ic_menu_call),
             Triple("Settings", "Accessibility settings", R.drawable.ic_dashboard_setup),
+            Triple("Notifications", "Notification setup", R.drawable.zu_notification_icon),
             Triple("Update", "Check for updates", android.R.drawable.ic_popup_sync)
         )
         items.forEach { (key, label, icon) ->

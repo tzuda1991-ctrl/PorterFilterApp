@@ -1611,6 +1611,10 @@ class AdminMainActivity : AppCompatActivity() {
             text = "TELEGRAM NOTIFICATIONS"
             setOnClickListener { showTelegramNotifications() }
         })
+        col.addView(Button(this).apply {
+            text = "Notification setup"
+            setOnClickListener { com.zu.auth.PushNotifications.showSetup(this@AdminMainActivity) }
+        })
         col.addView(headTv)
 
         if (paymentList.isEmpty()) {
