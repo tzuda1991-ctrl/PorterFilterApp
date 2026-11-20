@@ -55,3 +55,17 @@ test("editing a default city area keeps the rest of the bundled catalog", async 
     assert.equal(writes[0].values.areas.Dwarka, "");
     assert.equal(Object.hasOwn(writes[0].values.areas, "Okhla"), false);
 });
+
+test("payment buttons copy the full ID and keep review callbacks within Telegram's byte limit", () => {
+    const { paymentButtons } = require("./telegram-admin");
+    const id = "PAY-50b2b431-c8d3-4633-a570-9fdffd692d11";
+    assert.deepEqual(paymentButtons(id, [["Review", "review"], ["Approve", "approve"]]), [
+        { text: "Copy ID", copy_text: { text: id } },
+        { text: "Review", callback_data: "zu_review:" + id },
+        { text: "Approve", callback_data: "zu_approve:" + id },
+    ]);
+    const longId = "a".repeat(150);
+    assert.deepEqual(paymentButtons(longId, [["Review", "review"]]), [
+        { text: "Copy ID", copy_text: { text: longId } },
+    ]);
+});

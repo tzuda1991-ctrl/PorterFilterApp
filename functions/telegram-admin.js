@@ -81,6 +81,15 @@ function parseCommand(text) {
     return match ? { command: match[1].toLowerCase(), args: (match[2] ?? "").split("|").map(s => s.trim()) } : null;
 }
 
+function paymentButtons(id, actions) {
+    const buttons = [{ text: "Copy ID", copy_text: { text: id } }];
+    for (const [label, action] of actions) {
+        const data = "zu_" + action + ":" + id;
+        if (Buffer.byteLength(data) <= 64) buttons.push({ text: label, callback_data: data });
+    }
+    return buttons;
+}
+
 function commands(db) {
     const config = id => db.collection("app_config").doc(id);
     const mirror = db.doc("telegram_config/settings");
@@ -128,10 +137,6 @@ function commands(db) {
             return (d.driverNumber ? "zupro" + d.driverNumber : doc.id) + " · " + (d.name || "Driver") +
                 " · " + (d.status || "unknown") + " · " + (d.planName || d.plan || "No plan");
         }],
-        payments: ["payment_requests", doc => {
-            const d = doc.data();
-            return doc.id + " · " + (d.status || "unknown") + " · ₹" + d.amount + " · " + d.planName;
-        }],
         orders: ["orders", doc => {
             const d = doc.data();
             return doc.id + " · " + (d.driverName || "Driver") + " · ₹" + d.fare + " · " + (d.city || "");
@@ -151,6 +156,38 @@ function commands(db) {
     const areaList = (snapshot, city) => snapshot.exists ? snapshot.get("areas") ?? {} :
         Object.hasOwn(areasByCity, city) ? areasByCity[city] : {};
 
+    async function paymentPage(pageArg) {
+        const page = pageNumber(pageArg);
+        const limit = 8;
+        const snapshot = await db.collection("payment_requests").orderBy("__name__")
+            .offset((page - 1) * limit).limit(limit + 1).get();
+        const docs = snapshot.docs.slice(0, limit);
+        const text = docs.map((doc, index) => {
+            const { userName, status, amount, planName } = doc.data();
+            return (index + 1) + ". " + [userName, planName, "₹" + amount, status].filter(Boolean).map(value => String(value).slice(0, 48)).join(" · ") +
+                "\n" + doc.id;
+        }).join("\n\n");
+        const buttons = docs.map((doc, index) => paymentButtons(doc.id, [["Review", "review"]])
+            .map(button => ({ ...button, text: (index + 1) + ". " + button.text })));
+        const navigation = [];
+        if (page > 1) navigation.push({ text: "Previous", callback_data: "zu_payments:" + (page - 1) });
+        if (snapshot.size > limit && page < 50) navigation.push({ text: "Next", callback_data: "zu_payments:" + (page + 1) });
+        if (navigation.length) buttons.push(navigation);
+        return { text: "Payments · Page " + page + "\n\n" + (text || "Nothing on this page."),
+            markup: buttons.length ? { inline_keyboard: buttons } : undefined };
+    }
+
+    async function paymentReview(id) {
+        const snapshot = await ref("payment_requests", id).get();
+        requireInput(snapshot.exists, "Payment request could not be found.");
+        const { userName, status, amount, planName, utrNumber } = snapshot.data();
+        const fields = ["Payment review", "ID: " + snapshot.id, "Driver: " + (userName || "Unknown"),
+            "Plan: " + (planName || "Unknown"), "Amount: ₹" + amount, "Status: " + status,
+            "UTR: " + (utrNumber || "Unavailable")];
+        const actions = status === "pending" ? [["Approve & Activate", "approve"], ["Reject", "reject"]] : [];
+        return { text: fields.join("\n"), markup: { inline_keyboard: [paymentButtons(snapshot.id, actions)] } };
+    }
+
     async function read(command, args) {
         if (["start", "help", "admin"].includes(command)) return help;
         if (Object.hasOwn(sections, command)) return list(sections[command][0], args, sections[command][1]);
@@ -166,8 +203,8 @@ function commands(db) {
                 "\nPayments pending: " + pending.data().count;
         }
         if (command === "driver") return describe(await driverById(args[0], query => query.get()));
-        if (["payment", "order", "alert"].includes(command)) {
-            const collection = { payment: "payment_requests", order: "orders", alert: "notification_inbox_admin" }[command];
+        if (["order", "alert"].includes(command)) {
+            const collection = { order: "orders", alert: "notification_inbox_admin" }[command];
             const snapshot = await ref(collection, args[0]).get();
             requireInput(snapshot.exists, "Record not found.");
             if (command === "alert") {
@@ -358,7 +395,7 @@ function commands(db) {
             announcementNotice: optional(announcement), updatedAt: iso }, { merge: true });
         return "Update published.";
     }
-    return { read, write, writers, mirror };
+    return { read, write, writers, mirror, paymentPage, paymentReview };
 }
 
 function startTelegramAdmin(db, token, signal, logger = console) {
@@ -380,14 +417,26 @@ function startTelegramAdmin(db, token, signal, logger = console) {
         const characters = Array.from(message);
         for (let index = 0; index < characters.length; index += 1800) {
             await api("sendMessage", { chat_id: chatId, text: characters.slice(index, index + 1800).join(""),
-                protect_content: true, ...(index === 0 && markup ? { reply_markup: markup } : {}) });
+                ...(index === 0 && markup ? { reply_markup: markup } : {}) });
         }
+    }
+    async function showResult(chatId, result) {
+        await reply(chatId, result.text, result.markup);
+    }
+    async function confirmChange(chatId, command, args, description) {
+        confirmation = { command, args, chatId, nonce: randomBytes(12).toString("hex"), expires: Date.now() + 120000 };
+        await reply(chatId, "Confirm this change within 2 minutes:\n" + description, {
+            inline_keyboard: [[
+                { text: "Confirm", callback_data: "zu_confirm:" + confirmation.nonce },
+                { text: "Cancel", callback_data: "zu_cancel:" + confirmation.nonce },
+            ]],
+        });
     }
     async function handle(update) {
         const callback = update.callback_query;
         const message = callback?.message ?? update.message;
         if (!message || (!callback && !message.text?.startsWith("/"))) return;
-        if (!Number.isSafeInteger(message.date) || Date.now() / 1000 - message.date > 900) return;
+        if (!Number.isSafeInteger(message.date) || message.date <= 0 || (!callback && Date.now() / 1000 - message.date > 900)) return;
         const explicitOperator = process.env.ZU_TELEGRAM_ADMIN_CHAT_ID?.trim();
         if (!callback && parseCommand(message.text)?.command === "id" && message.chat?.type === "private" &&
             String(message.chat.id) === String(message.from?.id) && message.from?.is_bot === false) {
@@ -399,6 +448,19 @@ function startTelegramAdmin(db, token, signal, logger = console) {
         try {
             if (callback) {
                 await api("answerCallbackQuery", { callback_query_id: callback.id });
+                const selected = /^zu_(payments|review|approve|reject):(.+)$/.exec(callback.data ?? "");
+                if (selected) {
+                    const [, action, id] = selected;
+                    if (action === "payments") {
+                        await showResult(chatId, await service.paymentPage(id));
+                    } else if (action === "review") {
+                        await showResult(chatId, await service.paymentReview(id));
+                    } else {
+                        documentId(id);
+                        await confirmChange(chatId, action, [id], (action === "approve" ? "Approve & activate " : "Reject ") + id);
+                    }
+                    return;
+                }
                 if (callback.data === "zu_cancel:" + confirmation?.nonce && confirmation?.chatId === chatId) {
                     confirmation = undefined;
                     await reply(chatId, "Cancelled.");
@@ -423,14 +485,16 @@ function startTelegramAdmin(db, token, signal, logger = console) {
             }
             const parsed = parseCommand(message.text);
             if (!parsed) return;
+            if (parsed.command === "payments") {
+                await showResult(chatId, await service.paymentPage(parsed.args[0]));
+                return;
+            }
+            if (parsed.command === "payment") {
+                await showResult(chatId, await service.paymentReview(parsed.args[0]));
+                return;
+            }
             if (service.writers.has(parsed.command)) {
-                confirmation = { ...parsed, chatId, nonce: randomBytes(12).toString("hex"), expires: Date.now() + 120000 };
-                await reply(chatId, "Confirm this change within 2 minutes:\n" + message.text, {
-                    inline_keyboard: [[
-                        { text: "Confirm", callback_data: "zu_confirm:" + confirmation.nonce },
-                        { text: "Cancel", callback_data: "zu_cancel:" + confirmation.nonce },
-                    ]],
-                });
+                await confirmChange(chatId, parsed.command, parsed.args, message.text);
                 return;
             }
             const result = await service.read(parsed.command, parsed.args);
@@ -459,4 +523,4 @@ function startTelegramAdmin(db, token, signal, logger = console) {
     })();
 }
 
-module.exports = { commands, isOperator, parseCommand, startTelegramAdmin };
+module.exports = { commands, isOperator, parseCommand, paymentButtons, startTelegramAdmin };
