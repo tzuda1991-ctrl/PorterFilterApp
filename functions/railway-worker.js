@@ -61,8 +61,10 @@ async function run() {
                 try {
                     await action();
                     return;
-                } catch {
-                    console.error("Notification processing failed; will retry.", { event: id });
+                } catch (error) {
+                    console.error("Notification processing failed; will retry.", {
+                        kind: id.split("/")[0], code: error.code ?? "notification-error",
+                    });
                     await delay(retryDelay, undefined, { ref: false });
                     retryDelay = Math.min(retryDelay * 2, 60_000);
                 }

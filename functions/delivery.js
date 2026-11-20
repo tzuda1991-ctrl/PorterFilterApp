@@ -6,13 +6,30 @@ const channelId = "zu_updates";
 
 function createDelivery(db, telegramSecret, logger = console) {
     async function eligibleDevices(notice) {
-        const snapshot = notice.uid
-            ? await db.collection("push_accounts").doc(notice.uid).collection("push_devices")
-                .where("audience", "==", notice.audience).get()
-            : await db.collectionGroup("push_devices").where("audience", "==", notice.audience).get();
+        const accountCollection = notice.audience === "admin" ? "admins" : "users";
+        const readsForAccount = (uid) => db.collection("push_accounts").doc(uid).collection("push_devices")
+            .where("audience", "==", notice.audience).get();
+        let docs;
+        if (notice.uid) {
+            docs = (await readsForAccount(notice.uid)).docs;
+        } else {
+            try {
+                docs = (await db.collectionGroup("push_devices").where("audience", "==", notice.audience).get()).docs;
+            } catch (error) {
+                if (error.code !== 9 && error.code !== "failed-precondition") throw error;
+                const accounts = await db.collection(accountCollection).get();
+                docs = [];
+                for (let index = 0; index < accounts.docs.length; index += 20) {
+                    const group = accounts.docs.slice(index, index + 20);
+                    const devices = await Promise.all(group.map((account) => readsForAccount(account.id)));
+                    for (const snapshot of devices) docs.push(...snapshot.docs);
+                }
+                logger.info("FCM recovered using per-account token reads", { audience: notice.audience });
+            }
+        }
         const accounts = new Map();
         const tokens = new Map();
-        for (const doc of snapshot.docs) {
+        for (const doc of docs) {
             const data = doc.data();
             const uid = doc.ref.parent.parent.id;
             if (!accounts.has(uid)) {
@@ -30,6 +47,13 @@ function createDelivery(db, telegramSecret, logger = console) {
     async function deliverFcm(key, notice) {
         const devices = await eligibleDevices(notice);
         const tokens = [...devices.keys()];
+        if (tokens.length === 0) {
+            logger.warn("No eligible FCM devices; check notification registration and Firestore rules", {
+                audience: notice.audience, targeted: Boolean(notice.uid),
+            });
+            return;
+        }
+        let delivered = 0;
         for (let index = 0; index < tokens.length; index += 500) {
             const batch = tokens.slice(index, index + 500);
             const result = await getMessaging().sendEachForMulticast({
@@ -41,6 +65,7 @@ function createDelivery(db, telegramSecret, logger = console) {
                     notification: { channelId, tag: key },
                 },
             });
+            delivered += result.successCount;
             let retry = false;
             await Promise.all(result.responses.map(async (response, offset) => {
                 if (response.success) return;
@@ -58,6 +83,7 @@ function createDelivery(db, telegramSecret, logger = console) {
             }));
             if (retry) throw new Error("An FCM batch did not finish.");
         }
+        logger.info("FCM delivery processed", { audience: notice.audience, delivered, devices: tokens.length });
     }
 
     async function sendTelegram(text, ignoreDisabled = false) {
