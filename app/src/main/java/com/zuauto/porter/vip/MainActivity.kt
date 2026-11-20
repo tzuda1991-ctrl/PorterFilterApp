@@ -2,6 +2,7 @@ package com.zuauto.porter.vip
 
 import android.app.AlertDialog
 import com.zu.auth.AreaCatalog
+import com.zu.auth.CityCatalog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -99,18 +100,26 @@ class MainActivity : AppCompatActivity() {
         root.addView(switchAccount)
         setContentView(root)
 
-        fun connect() {
+        fun connect(details: ZuAutoCloudManager.DriverDetails? = null, formFailure: ((String) -> Unit)? = null) {
             button.isEnabled = false
             switchAccount.visibility = View.GONE
             message.text = "Checking driver access…"
-            ZuAutoCloudManager.connectGoogleDriver(this) { ready, error ->
+            ZuAutoCloudManager.connectGoogleDriver(this, details, onDetailsRequired = {
+                if (!isFinishing && !isDestroyed) {
+                    showRequiredDriverDetails { profile, onFailure -> connect(profile, onFailure) }
+                }
+            }) { ready, error ->
                 if (isFinishing || isDestroyed) return@connectGoogleDriver
                 val status = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
                     .getString("DRIVER_ACCOUNT_STATUS", "")
                 if (ready) {
+                    purchaseDialog?.dismiss()
+                    purchaseDialog = null
                     showDriverDashboard()
                 } else if (status == "suspended" || status == "deleted") {
                     lockDriverAccess(status)
+                } else if (formFailure != null) {
+                    formFailure(error)
                 } else {
                     message.text = error
                     button.text = "Try again"
@@ -135,10 +144,90 @@ class MainActivity : AppCompatActivity() {
         if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) connect()
     }
 
+    private fun showRequiredDriverDetails(
+        submit: (ZuAutoCloudManager.DriverDetails, (String) -> Unit) -> Unit
+    ) {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        val name = EditText(this).apply {
+            hint = "Full name"
+            setSingleLine(true)
+            setText(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.displayName.orEmpty())
+        }
+        val mobile = EditText(this).apply {
+            hint = "10-digit mobile number"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_PHONE
+            keyListener = android.text.method.DigitsKeyListener.getInstance("0123456789")
+            filters = arrayOf(android.text.InputFilter.LengthFilter(10))
+        }
+        var city: String? = null
+        val cityPicker = Button(this).apply { text = "Select city ▾" }
+        form.addView(name)
+        form.addView(mobile)
+        form.addView(cityPicker)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Complete driver profile")
+            .setView(ScrollView(this).apply { addView(form) })
+            .setCancelable(false)
+            .setNegativeButton("Close app") { _, _ -> finishAndRemoveTask() }
+            .setPositiveButton("Continue", null)
+            .show()
+        cityPicker.setOnClickListener {
+            selectManagedCity { selected ->
+                city = selected
+                cityPicker.text = "$selected ▾"
+            }
+        }
+        val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        save.setOnClickListener {
+            val fullName = name.text.toString().trim()
+            val number = mobile.text.toString()
+            val selected = city
+            when {
+                fullName.isBlank() || fullName.length > 100 -> name.error = "Enter your full name"
+                !number.matches(Regex("[0-9]{10}")) -> mobile.error = "Enter exactly 10 digits"
+                selected == null -> Toast.makeText(this, "Select your city.", Toast.LENGTH_SHORT).show()
+                else -> {
+                    save.isEnabled = false
+                    cityPicker.isEnabled = false
+                    submit(ZuAutoCloudManager.DriverDetails(fullName, number, selected)) { error ->
+                        if (dialog.isShowing) {
+                            save.isEnabled = true
+                            cityPicker.isEnabled = true
+                            Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
+        purchaseDialog = dialog
+    }
+
+    private fun selectManagedCity(onSelected: (String) -> Unit) {
+        val loading = AlertDialog.Builder(this).setMessage("Loading cities…").show()
+        CityCatalog.fetch { cities ->
+            if (!loading.isShowing || isFinishing || isDestroyed) return@fetch
+            loading.dismiss()
+            if (accessLocked) return@fetch
+            if (cities.isNullOrEmpty()) {
+                Toast.makeText(this, "No cities available. Contact support or try again.", Toast.LENGTH_LONG).show()
+            } else {
+                val options = cities.toTypedArray()
+                AlertDialog.Builder(this).setTitle("Select city")
+                    .setItems(options) { _, selected -> onSelected(options[selected]) }
+                    .setNegativeButton("Cancel", null).show()
+            }
+        }
+    }
+
     private fun showDriverDashboard() {
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         selectedSpeed = prefs.getString("SWIPE_SPEED", "QUICK") ?: "QUICK"
-        selectedCity = prefs.getString("SELECTED_CITY", "Bengaluru") ?: "Bengaluru"
+        val profileCity = prefs.getString("USER_CITY", "Bengaluru") ?: "Bengaluru"
+        selectedCity = prefs.getString("SELECTED_CITY", profileCity) ?: profileCity
 
         prefs.getString("PICKUP_FILTER", "")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.let {
             selectedPickupSet.addAll(it)
@@ -775,22 +864,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         citySelectBtn.setOnClickListener {
-            val cities = AreaCatalog.cities.toTypedArray()
-            AlertDialog.Builder(this)
-                .setTitle("Select Operating City")
-                .setItems(cities) { _, which ->
-                    val chosen = cities[which]
-                    if (chosen != selectedCity) {
-                        selectedCity = chosen
-                        selectedPickupSet.clear()
-                        selectedDropSet.clear()
-                        citySelectBtn.text = "📍  $selectedCity   ▾"
-                        citySelectBtn.contentDescription = "Operating city: $selectedCity"
-                        observeCityAreas()
-                        syncAllFilterStates()
-                    }
+            selectManagedCity { chosen ->
+                if (chosen != selectedCity) {
+                    selectedCity = chosen
+                    selectedPickupSet.clear()
+                    selectedDropSet.clear()
+                    citySelectBtn.text = "📍  $selectedCity   ▾"
+                    citySelectBtn.contentDescription = "Operating city: $selectedCity"
+                    observeCityAreas()
+                    syncAllFilterStates()
                 }
-                .show()
+            }
         }
 
         // 5. SWIPE RESPONSE VELOCITY CARD
@@ -1140,7 +1224,7 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
         if (reason == "expired") {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                renderDriverProfile(synced = true)
+                renderDriverProfile(synced = true, showPlans = true)
             }
         }
         dialog.setCanceledOnTouchOutside(false)
@@ -1464,9 +1548,7 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         val name = prefs.getString("USER_NAME", "Driver") ?: "Driver"
         val phone = prefs.getString("USER_PHONE", "--") ?: "--"
-        val uid = prefs.getString("USER_UID", "DRV-1001") ?: "DRV-1001"
         val city = prefs.getString("USER_CITY", selectedCity) ?: selectedCity
-        val vehicle = prefs.getString("USER_VEHICLE", "Porter Vehicle") ?: "Porter Vehicle"
         val plan = prefs.getString("USER_PLAN", "TRIAL") ?: "TRIAL"
         val expiresAtMillis = prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L)
         val now = System.currentTimeMillis()
@@ -1474,11 +1556,9 @@ class MainActivity : AppCompatActivity() {
         val isTrial = plan.equals("TRIAL", ignoreCase = true)
         val isExpired = expiresAtMillis in 1..now
         val isActive = expiresAtMillis == 0L || expiresAtMillis > now
-        val renewalWindow = java.util.concurrent.TimeUnit.HOURS.toMillis(48)
         val status = prefs.getString("DRIVER_ACCOUNT_STATUS", "active")
         val accountAvailable = status != "suspended" && status != "deleted"
-        val canPurchase = synced && accountAvailable && (showPlans || isTrial || isExpired ||
-            (expiresAtMillis > now && expiresAtMillis - now <= renewalWindow))
+        val canPurchase = showPlans && synced && accountAvailable
         val durationDays = prefs.getInt("PLAN_DURATION_DAYS", 0)
         val startedAt = prefs.getLong("PLAN_STARTED_AT_MILLIS", 0L)
 
@@ -1516,8 +1596,12 @@ class MainActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
         }
         val metaTv = TextView(this).apply {
-            text = "$phone • $city ($uid)"
-            textSize = 10.5f
+            val joinedAt = prefs.getLong("USER_JOINED_AT_MILLIS", 0L)
+            val joined = if (joinedAt > 0) {
+                SimpleDateFormat("dd MMM yyyy, h:mm a z", Locale.getDefault()).format(Date(joinedAt))
+            } else "Unavailable"
+            text = "Mobile: $phone\nCity: $city\nJoined: $joined"
+            textSize = 13f
             setTextColor(Color.parseColor("#94A3B8"))
         }
         profileCol.addView(nameTv)
@@ -1589,6 +1673,19 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(Color.parseColor("#FACC15"))
                 textSize = 12f
             })
+        }
+
+        if (!showPlans) {
+            if (accountAvailable && (isTrial || isExpired || expiresAtMillis == 0L)) {
+                root.addView(Button(this).apply {
+                    text = if (isExpired) "Renew plan" else "View plans"
+                    setOnClickListener {
+                        purchaseDialog?.dismiss()
+                        showDriverProfileAndValidityDialog(showPlans = true)
+                    }
+                })
+            }
+            addPaymentHistory(root)
         }
 
         // Plans Section Title
@@ -1702,11 +1799,55 @@ class MainActivity : AppCompatActivity() {
         root.addView(actionsRow)
 
         mainDialog = AlertDialog.Builder(this)
-            .apply { if (showPlans) setTitle("Plans") }
-            .setView(root)
+            .setTitle(if (showPlans) "Plans" else "Profile")
+            .setView(if (showPlans) root else ScrollView(this).apply { addView(root) })
             .create()
         purchaseDialog = mainDialog
         mainDialog.show()
+    }
+
+    private fun addPaymentHistory(parent: LinearLayout) {
+        parent.addView(TextView(this).apply {
+            text = "Transaction history"
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#F6D897"))
+            setPadding(0, dp(14), 0, dp(8))
+        })
+        val entries = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val message = TextView(this).apply {
+            text = "Loading transactions…"
+            setTextColor(Color.parseColor("#BBC9DD"))
+        }
+        entries.addView(message)
+        parent.addView(entries)
+        ZuAutoCloudManager.fetchPaymentHistory { history ->
+            if (isDestroyed || isFinishing) return@fetchPaymentHistory
+            if (history.isNullOrEmpty()) {
+                message.text = if (history == null) "Could not load transactions. Reopen Profile to retry."
+                    else "No transactions yet."
+                return@fetchPaymentHistory
+            }
+            entries.removeAllViews()
+            fun formattedTime(raw: String): String = runCatching {
+                val date = Date(java.time.Instant.parse(raw).toEpochMilli())
+                SimpleDateFormat("dd MMM yyyy, h:mm a z", Locale.getDefault()).format(date)
+            }.getOrDefault(raw.ifBlank { "Unavailable" })
+            history.forEach { item ->
+                entries.addView(TextView(this).apply {
+                    text = buildString {
+                        append("${item.plan} · ₹${item.amount}\n")
+                        append("Status: ${item.status.replaceFirstChar { it.uppercase() }}\n")
+                        append("UTR: ${item.utr}\nSubmitted: ${formattedTime(item.submittedAt)}")
+                        if (item.reviewedAt.isNotBlank()) append("\nReviewed: ${formattedTime(item.reviewedAt)}")
+                    }
+                    textSize = 13f
+                    setTextColor(Color.parseColor("#F4F7FC"))
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    background = createNeonBox("#182841", "#4F5D74", 12)
+                }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
+            }
+        }
     }
 
     // ---------------- UPI CHECKOUT & UTR PROOF SUBMISSION DIALOG ----------------

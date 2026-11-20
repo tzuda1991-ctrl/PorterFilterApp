@@ -2,6 +2,7 @@ package com.zuauto.porter.admin
 
 import android.app.AlertDialog
 import com.zu.auth.AreaCatalog
+import com.zu.auth.CityCatalog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -460,13 +461,8 @@ class AdminMainActivity : AppCompatActivity() {
             }
         }
         col.addView(Button(this).apply {
-            text = "Area management"
-            setOnClickListener {
-                val cities = AreaCatalog.cities.toTypedArray()
-                AlertDialog.Builder(this@AdminMainActivity).setTitle("Manage areas by city")
-                    .setItems(cities) { _, position -> showAreaManagement(cities[position]) }
-                    .setNegativeButton("Cancel", null).show()
-            }
+            text = "City & area management"
+            setOnClickListener { showCityManagement() }
         })
         col.addView(searchIn)
 
@@ -518,6 +514,92 @@ class AdminMainActivity : AppCompatActivity() {
         scroll.addView(itemsCol)
         col.addView(scroll)
         contentFrame.addView(col)
+    }
+
+    private fun showCityManagement() {
+        val loading = AlertDialog.Builder(this).setMessage("Loading cities…").show()
+        CityCatalog.fetch { result ->
+            if (!loading.isShowing || isFinishing || isDestroyed) return@fetch
+            loading.dismiss()
+            if (result == null) {
+                Toast.makeText(this, "Could not load cities. Try again.", Toast.LENGTH_LONG).show()
+                return@fetch
+            }
+            val cities = result.sortedWith(String.CASE_INSENSITIVE_ORDER)
+            AlertDialog.Builder(this)
+                .setTitle("City & area management")
+                .setItems(cities.toTypedArray()) { _, selection -> showCityActions(result, cities[selection]) }
+                .setPositiveButton("Add city") { _, _ -> showAddCity(result) }
+                .setNegativeButton("Close", null)
+                .show()
+        }
+    }
+
+    private fun showCityActions(cities: List<String>, city: String) {
+        AlertDialog.Builder(this)
+            .setTitle(city)
+            .setItems(arrayOf("Manage areas", "Remove city")) { _, option ->
+                if (option == 0) {
+                    showAreaManagement(city)
+                } else {
+                    AlertDialog.Builder(this)
+                        .setTitle("Remove $city?")
+                        .setMessage("This removes the city from driver dropdowns. Existing driver profiles and saved area catalogs stay in place.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Remove") { _, _ ->
+                            saveCities(cities, cities - city) { success ->
+                                if (success) showCityManagement()
+                            }
+                        }
+                        .show()
+                }
+            }
+            .setNegativeButton("Back") { _, _ -> showCityManagement() }
+            .show()
+    }
+
+    private fun showAddCity(cities: List<String>) {
+        val input = EditText(this).apply {
+            hint = "City name"
+            setSingleLine(true)
+        }
+        val dialog = AlertDialog.Builder(this).setTitle("Add city")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .show()
+        val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        save.setOnClickListener {
+            val city = input.text.toString().trim()
+            when {
+                !city.matches(Regex("""[\p{L}\p{N}][\p{L}\p{N} .&'()-]{0,59}""")) ->
+                    input.error = "Enter a city name"
+                cities.any { it.equals(city, ignoreCase = true) } -> input.error = "City already exists"
+                else -> {
+                    save.isEnabled = false
+                    saveCities(cities, cities + city) { success ->
+                        if (!dialog.isShowing) return@saveCities
+                        save.isEnabled = true
+                        if (success) {
+                            dialog.dismiss()
+                            showCityManagement()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun saveCities(expected: List<String>, updated: List<String>, callback: (Boolean) -> Unit) {
+        val document = CityCatalog.document()
+        com.google.firebase.firestore.FirebaseFirestore.getInstance().runTransaction { transaction ->
+            check(CityCatalog.read(transaction.get(document)) == expected)
+            transaction.set(document, mapOf("cities" to updated))
+            true
+        }.addOnCompleteListener {
+            if (!it.isSuccessful) Toast.makeText(this, "Could not save cities. Reopen the list and retry.", Toast.LENGTH_LONG).show()
+            callback(it.isSuccessful)
+        }
     }
 
     private fun showAreaManagement(city: String) {

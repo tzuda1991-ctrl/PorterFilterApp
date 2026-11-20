@@ -229,7 +229,16 @@ object ZuAutoCloudManager {
     }
 
     // ---------------- USER REGISTRATION ----------------
-    fun connectGoogleDriver(context: Context, callback: (Boolean, String) -> Unit) {
+    data class DriverDetails(val name: String, val phone: String, val city: String)
+
+    private class DriverDetailsRequired : Exception()
+
+    fun connectGoogleDriver(
+        context: Context,
+        details: DriverDetails? = null,
+        onDetailsRequired: () -> Unit,
+        callback: (Boolean, String) -> Unit
+    ) {
         val user = auth.currentUser ?: return callback(false, "Sign in with Google first.")
         val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         prefs.edit().putBoolean("IS_REGISTERED", false).apply()
@@ -252,11 +261,21 @@ object ZuAutoCloudManager {
                 }
                 if (code == 403) error("This account may already be linked to another sign-in. Ask your admin to reset it.")
                 check(code == 200 || code == 404) { "Could not verify this device. Try again." }
+                val currentStatus = fields?.optJSONObject("status")?.optString("stringValue")
+                if (currentStatus in listOf("blocked", "suspended", "deleted")) {
+                    prefs.edit().putString("DRIVER_ACCOUNT_STATUS",
+                        if (currentStatus == "deleted") "deleted" else "suspended").apply()
+                    error("Driver access is unavailable.")
+                }
                 val reset = fields?.optJSONObject("sessionAuthTime")?.optString("integerValue") == "0"
                 if (reset) {
                     val resetAfter = fields?.optJSONObject("sessionResetAfter")?.optLong("integerValue") ?: 0L
                     check(authTime > resetAfter) { "Phone link was reset. Sign out and choose your Google account again." }
                 }
+                val missingDetails = code == 404 || listOf("name", "phone", "city").any { key ->
+                    fields?.optJSONObject(key)?.optString("stringValue").isNullOrBlank()
+                }
+                if (missingDetails && details == null) throw DriverDetailsRequired()
                 if (code == 404 || reset) {
                     val parameters = if (reset) "&updateMask.fieldPaths=sessionAuthTime&currentDocument.exists=true"
                         else "&currentDocument.exists=false"
@@ -269,14 +288,17 @@ object ZuAutoCloudManager {
                             .put("sessionAuthTime", JSONObject().put("integerValue", authTime.toString()))
                         if (!reset) {
                             val now = java.time.Instant.now()
+                            val driverDetails = checkNotNull(details)
                             mapOf(
-                                "uid" to user.uid, "name" to (user.displayName ?: "Driver"),
+                                "uid" to user.uid, "name" to driverDetails.name,
+                                "phone" to driverDetails.phone, "city" to driverDetails.city,
                                 "email" to user.email.orEmpty(), "status" to "active",
                                 "planName" to "TRIAL", "subscriptionStatus" to "trial"
                             ).forEach { (key, value) ->
                                 profile.put(key, JSONObject().put("stringValue", value))
                             }
                             profile.put("validUntil", JSONObject().put("timestampValue", now.plusSeconds(259200).toString()))
+                            profile.put("joinedAt", JSONObject().put("timestampValue", now.toString()))
                         }
                         connection.outputStream.bufferedWriter().use {
                             it.write(JSONObject().put("fields", profile).toString())
@@ -286,12 +308,32 @@ object ZuAutoCloudManager {
                         connection.disconnect()
                     }
                 }
+                if (code == 200 && missingDetails && details != null) {
+                    val connection = URL("$path?key=$FIREBASE_API_KEY&updateMask.fieldPaths=name&updateMask.fieldPaths=phone&updateMask.fieldPaths=city&currentDocument.exists=true")
+                        .authorizedConnection()
+                    try {
+                        connection.requestMethod = "PATCH"
+                        connection.doOutput = true
+                        connection.setRequestProperty("Content-Type", "application/json")
+                        val profile = JSONObject()
+                        mapOf("name" to details.name, "phone" to details.phone, "city" to details.city)
+                            .forEach { (key, value) -> profile.put(key, JSONObject().put("stringValue", value)) }
+                        connection.outputStream.bufferedWriter().use {
+                            it.write(JSONObject().put("fields", profile).toString())
+                        }
+                        check(connection.responseCode in 200..299) { "Could not save profile details. Try again." }
+                    } finally {
+                        connection.disconnect()
+                    }
+                }
                 check(auth.currentUser?.uid == user.uid)
                 prefs.edit().putString("USER_UID", user.uid).apply()
             }
             mainHandler.post {
                 if (result.isFailure) {
-                    callback(false, result.exceptionOrNull()?.message ?: "Could not connect.")
+                    val error = result.exceptionOrNull()
+                    if (error is DriverDetailsRequired) onDetailsRequired()
+                    else callback(false, error?.message ?: "Could not connect.")
                 } else {
                     syncDriverValidityFromCloud(context) { synced ->
                         if (synced && auth.currentUser?.uid == user.uid &&
@@ -355,23 +397,19 @@ object ZuAutoCloudManager {
                         "city" to "USER_CITY", "vehicle" to "USER_VEHICLE").forEach { (field, preference) ->
                         value(field).takeIf { it.isNotBlank() }?.let { editor.putString(preference, it) }
                     }
-                    editor.apply()
+                    val joinedAt = parseDate(value("joinedAt")) ?: parseDate(value("registeredAt"))
+                        ?: auth.currentUser?.metadata?.creationTimestamp ?: 0L
+                    editor.putLong("USER_JOINED_AT_MILLIS", joinedAt).apply()
 
                     val planName = value("planName").ifBlank { value("plan") }
                     val expires = parseDate(value("validUntil")) ?: parseDate(value("planExpiresAt"))
                     check(planName.isNotBlank() && expires != null)
-                    val savedPlan = prefs.getString("USER_PLAN", "TRIAL").orEmpty()
-                    val localKeyPlan = planName.equals("TRIAL", true) &&
-                        !savedPlan.equals("TRIAL", true) &&
-                        prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L) > expires
-                    if (!localKeyPlan) {
-                        prefs.edit()
-                            .putString("USER_PLAN", planName)
-                            .putLong("PLAN_EXPIRES_AT_MILLIS", expires)
-                            .putLong("PLAN_STARTED_AT_MILLIS", parseDate(value("subscriptionStartsAt")) ?: 0L)
-                            .putInt("PLAN_DURATION_DAYS", value("subscriptionDurationDays").toIntOrNull() ?: 0)
-                            .apply()
-                    }
+                    prefs.edit()
+                        .putString("USER_PLAN", planName)
+                        .putLong("PLAN_EXPIRES_AT_MILLIS", expires)
+                        .putLong("PLAN_STARTED_AT_MILLIS", parseDate(value("subscriptionStartsAt")) ?: 0L)
+                        .putInt("PLAN_DURATION_DAYS", value("subscriptionDurationDays").toIntOrNull() ?: 0)
+                        .apply()
                     mainHandler.post { onSynced(true) }
                 } else if (code == 403 || code == 404) {
                     prefs.edit().putBoolean("IS_REGISTERED", false).apply()
@@ -444,6 +482,31 @@ object ZuAutoCloudManager {
     }
 
     // ---------------- SUBMIT UPI PAYMENT REQUEST WITH UTR ----------------
+    data class PaymentHistoryEntry(
+        val plan: String, val amount: Long, val utr: String, val status: String,
+        val submittedAt: String, val reviewedAt: String
+    )
+
+    fun fetchPaymentHistory(callback: (List<PaymentHistoryEntry>?) -> Unit) {
+        val uid = auth.currentUser?.uid ?: return callback(null)
+        com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("payment_requests")
+            .whereEqualTo("userId", uid)
+            .get(com.google.firebase.firestore.Source.SERVER)
+            .addOnCompleteListener { task ->
+                if (!task.isSuccessful) {
+                    callback(null)
+                } else {
+                    callback(task.result.documents.map { document ->
+                        PaymentHistoryEntry(
+                            document.getString("planName").orEmpty(), document.getLong("amount") ?: 0L,
+                            document.getString("utrNumber").orEmpty(), document.getString("status").orEmpty(),
+                            document.getString("createdAt").orEmpty(), document.getString("reviewedAt").orEmpty()
+                        )
+                    }.sortedByDescending { it.submittedAt })
+                }
+            }
+    }
+
     fun isValidUtr(value: String): Boolean = value.length == 12 && value.all { it in '0'..'9' }
 
     fun submitPaymentProof(
@@ -463,7 +526,7 @@ object ZuAutoCloudManager {
         val driverPhone = prefs.getString("USER_PHONE", "+91 98765 43210") ?: "+91 98765 43210"
 
         val reqId = "PAY-" + java.util.UUID.randomUUID().toString()
-        val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+        val nowIso = java.time.Instant.now().toString()
 
         executor.execute {
             try {

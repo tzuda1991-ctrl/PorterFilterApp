@@ -30,6 +30,15 @@ service cloud.firestore {
         && driverProfile().sessionAuthTime == request.auth.token.auth_time;
     }
 
+    function validDriverDetails(profile) {
+      let catalog = /databases/$(database)/documents/app_config/driver_cities;
+      return profile.name is string && profile.name.size() > 0 && profile.name.size() <= 100
+        && profile.phone is string && profile.phone.matches('[0-9]{10}')
+        && profile.city is string
+        && ((!exists(catalog) && profile.city in ['Bengaluru', 'Mumbai', 'Delhi NCR', 'Hyderabad', 'Chennai', 'Pune'])
+            || (exists(catalog) && profile.city in get(catalog).data.cities));
+    }
+
     match /users/{uid} {
       allow get: if ownGoogleAccount(uid) && (
         resource == null || resource.data.sessionAuthTime == request.auth.token.auth_time
@@ -38,10 +47,13 @@ service cloud.firestore {
       allow create: if ownGoogleAccount(uid)
         && request.resource.data.keys().hasOnly([
           'uid', 'name', 'email', 'status', 'planName',
-          'subscriptionStatus', 'sessionAuthTime', 'validUntil'
+          'subscriptionStatus', 'sessionAuthTime', 'validUntil', 'joinedAt', 'phone', 'city'
         ])
         && request.resource.data.uid == uid
-        && request.resource.data.name is string
+        && validDriverDetails(request.resource.data)
+        && request.resource.data.joinedAt is timestamp
+        && request.resource.data.joinedAt >= request.time - duration.value(5, 'm')
+        && request.resource.data.joinedAt <= request.time + duration.value(5, 'm')
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.status == 'active'
         && request.resource.data.planName == 'TRIAL'
@@ -55,10 +67,15 @@ service cloud.firestore {
         && request.auth.token.auth_time > resource.data.sessionResetAfter
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sessionAuthTime'])
         && request.resource.data.sessionAuthTime == request.auth.token.auth_time;
+      allow update: if ownGoogleAccount(uid) && resource.data.status == 'active'
+        && resource.data.sessionAuthTime == request.auth.token.auth_time
+        && (resource.data.get('name', '') == '' || resource.data.get('phone', '') == '' || resource.data.get('city', '') == '')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'city'])
+        && validDriverDetails(request.resource.data);
     }
 
     match /app_config/{document} {
-      allow get: if (document == 'support' && verifiedGoogleAccount())
+      allow get: if (document in ['support', 'driver_cities'] && verifiedGoogleAccount())
         || (activeDriverSession() && document in ['version_control', 'payment_settings']);
     }
 
@@ -81,6 +98,7 @@ service cloud.firestore {
     }
 
     match /payment_requests/{payment} {
+      allow read: if activeDriverSession() && resource.data.userId == request.auth.uid;
       allow create: if activeDriverSession()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending'
