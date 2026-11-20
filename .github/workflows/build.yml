@@ -22,8 +22,25 @@ jobs:
         run: |
           echo "ZU_VERSION_CODE=$((10 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
           echo "ZU_VERSION_NAME=11.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+      - name: Restore APK signing key
+        env:
+          ZU_APK_KEYSTORE_BASE64: ${{ secrets.ZU_APK_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$ZU_APK_KEYSTORE_BASE64"
+          umask 077
+          printf '%s' "$ZU_APK_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/zu-smart.p12"
+          echo "ZU_APK_KEYSTORE_PATH=$RUNNER_TEMP/zu-smart.p12" >> "$GITHUB_ENV"
       - name: Build Debug APKs
+        env:
+          ZU_APK_STORE_PASSWORD: ${{ secrets.ZU_APK_STORE_PASSWORD }}
         run: gradle assembleDebug "-PzuVersionCode=$ZU_VERSION_CODE" "-PzuVersionName=$ZU_VERSION_NAME"
+      - name: Verify APK certificates
+        run: |
+          apk_signer="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          for apk in app/build/outputs/apk/debug/app-debug.apk admin/build/outputs/apk/debug/admin-debug.apk; do
+            "$apk_signer" verify --print-certs "$apk" | tee "$RUNNER_TEMP/apk-certificate.txt"
+            grep -qi 'certificate SHA-1 digest: f0071a08f3f2c8047d163cc5ab9904a781a09410' "$RUNNER_TEMP/apk-certificate.txt"
+          done
       - name: Upload Driver App APK
         uses: actions/upload-artifact@v4
         with:

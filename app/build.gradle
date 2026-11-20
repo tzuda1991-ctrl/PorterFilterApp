@@ -15,6 +15,24 @@ android {
         versionName providers.gradleProperty('zuVersionName').getOrElse('11.0-local')
     }
 
+    def apkKeystore = providers.environmentVariable('ZU_APK_KEYSTORE_PATH').orNull
+    if (apkKeystore != null) {
+        signingConfigs {
+            stable {
+                storeFile file(apkKeystore)
+                storeType 'PKCS12'
+                keyAlias 'zu-smart'
+                storePassword providers.environmentVariable('ZU_APK_STORE_PASSWORD').get()
+                keyPassword providers.environmentVariable('ZU_APK_STORE_PASSWORD').get()
+            }
+        }
+        buildTypes {
+            debug {
+                signingConfig signingConfigs.stable
+            }
+        }
+    }
+
     buildFeatures {
         buildConfig true
     }
