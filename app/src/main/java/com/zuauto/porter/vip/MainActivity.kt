@@ -37,8 +37,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fareSwitch: Switch
     private lateinit var pickupSwitch: Switch
     private lateinit var dropSwitch: Switch
-    private lateinit var footerOnlineText: TextView
-    private lateinit var footerSystemText: TextView
+    private lateinit var permissionStatus: TextView
+    private lateinit var saveProfileButton: Button
     private lateinit var userBox: TextView
     private lateinit var planBadge: TextView
 
@@ -325,7 +325,7 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 val active = !prefs.getBoolean("BOT_ACTIVE", true)
                 prefs.edit().putBoolean("BOT_ACTIVE", active).apply()
-                updateSystemStatusBar()
+                updatePermissionStatus()
                 if (Settings.canDrawOverlays(this@MainActivity)) startFloatingWidget()
             }
         }
@@ -346,8 +346,13 @@ class MainActivity : AppCompatActivity() {
         if (!compact) accountRow.addView(historyBtn)
         userBox.layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
         accountRow.addView(userBox)
-        planBadge.maxWidth = dp(104)
-        accountRow.addView(planBadge)
+        val accountActions = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END
+        }
+        planBadge.maxWidth = dp(132)
+        accountActions.addView(planBadge)
+        accountRow.addView(accountActions)
 
         val citySelectBtn = TextView(this).apply {
             text = "📍  $selectedCity   ▾"
@@ -360,7 +365,28 @@ class MainActivity : AppCompatActivity() {
             minimumHeight = dp(44)
             contentDescription = "Operating city: $selectedCity"
         }
-        mainCol.addView(citySelectBtn, LinearLayout.LayoutParams(wrap, wrap).apply {
+        permissionStatus = TextView(this).apply {
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            minimumHeight = dp(44)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            setOnClickListener { openMissingPermission() }
+        }
+        val stackStatus = configuration.screenWidthDp < 320 || configuration.fontScale >= 1.4f
+        val cityStatusRow = LinearLayout(this).apply {
+            orientation = if (stackStatus) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBaselineAligned(false)
+        }
+        cityStatusRow.addView(citySelectBtn, if (stackStatus) LinearLayout.LayoutParams(wrap, wrap)
+            else LinearLayout.LayoutParams(0, wrap, 1f))
+        cityStatusRow.addView(permissionStatus, if (stackStatus) {
+            LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(4) }
+        } else {
+            LinearLayout.LayoutParams(0, wrap, 1f).apply { marginStart = dp(6) }
+        })
+        mainCol.addView(cityStatusRow, LinearLayout.LayoutParams(match, wrap).apply {
             bottomMargin = dp(7)
         })
 
@@ -847,30 +873,37 @@ class MainActivity : AppCompatActivity() {
         speedCard.addView(speedTilesRow)
         mainCol.addView(speedCard)
 
-        // 6. ACTION DOCK
-        val saveBtn = createCyberActionPill(
-            iconStr = "💾",
-            title = "SAVE PROFILE",
-            sub = "Apply saved filters",
-            c1 = "#10264D",
-            c2 = "#184B94",
-            isLeft = true
-        ) {
-            val fare = minFareInput.text.toString().toIntOrNull() ?: 200
-            prefs.edit()
-                .putBoolean("USE_FARE_FILTER", fareSwitch.isChecked)
-                .putInt("MIN_FARE", fare)
-                .putString("SELECTED_CITY", selectedCity)
-                .putBoolean("USE_PICKUP_FILTER", pickupSwitch.isChecked)
-                .putString("PICKUP_FILTER", selectedPickupSet.joinToString(","))
-                .putBoolean("USE_DROP_FILTER", dropSwitch.isChecked)
-                .putString("DROP_FILTER", selectedDropSet.joinToString(","))
-                .putString("SWIPE_SPEED", selectedSpeed)
-                .apply()
+        saveProfileButton = Button(this).apply {
+            text = "Save profile"
+            isAllCaps = false
+            textSize = 12f
+            minimumHeight = dp(44)
+            setPadding(dp(12), dp(3), dp(12), dp(3))
+            setOnClickListener {
+                if (!permissionsReady() || accessLocked) {
+                    updatePermissionStatus()
+                    return@setOnClickListener
+                }
+                val fare = minFareInput.text.toString().toIntOrNull() ?: 200
+                prefs.edit()
+                    .putBoolean("USE_FARE_FILTER", fareSwitch.isChecked)
+                    .putInt("MIN_FARE", fare)
+                    .putString("SELECTED_CITY", selectedCity)
+                    .putBoolean("USE_PICKUP_FILTER", pickupSwitch.isChecked)
+                    .putString("PICKUP_FILTER", selectedPickupSet.joinToString(","))
+                    .putBoolean("USE_DROP_FILTER", dropSwitch.isChecked)
+                    .putString("DROP_FILTER", selectedDropSet.joinToString(","))
+                    .putString("SWIPE_SPEED", selectedSpeed)
+                    .apply()
 
-            if (Settings.canDrawOverlays(this)) startFloatingWidget()
-            Toast.makeText(this, "✅ Config Saved: ZuAuto Active", Toast.LENGTH_SHORT).show()
+                if (Settings.canDrawOverlays(this)) startFloatingWidget()
+                Toast.makeText(this, "✅ Config Saved: ZuAuto Active", Toast.LENGTH_SHORT).show()
+            }
         }
+
+        accountActions.addView(saveProfileButton, LinearLayout.LayoutParams(wrap, wrap).apply {
+            topMargin = dp(4)
+        })
 
         val hudBtn = createCyberActionPill(
             iconStr = "🥞",
@@ -888,42 +921,6 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "⚡ ZuAuto Floating HUD Active", Toast.LENGTH_SHORT).show()
             }
         }
-        // 7. BOTTOM STATUS FOOTER
-        val footerBar = LinearLayout(this).apply {
-            orientation = if (compact) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(2), dp(8), dp(2))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-        footerSystemText = TextView(this).apply {
-            text = "ılılı  ZuAuto Engine Ready"
-            textSize = 8.5f
-            setTextColor(Color.parseColor("#A9771D"))
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        val footerCenterText = TextView(this).apply {
-            text = "ZUAUTO  •  PORTER VIP ENGINE"
-            textSize = 12f
-            setTextColor(Color.parseColor("#42536D"))
-            typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.12f
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        footerOnlineText = TextView(this).apply {
-            text = "● Online"
-            textSize = 8.5f
-            setTextColor(Color.parseColor("#10B981"))
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        footerBar.addView(footerSystemText)
-        if (!compact) footerBar.addView(footerCenterText)
-        footerBar.addView(footerOnlineText)
-        mainCol.addView(footerBar)
-
         val shortcuts = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
@@ -945,7 +942,6 @@ class MainActivity : AppCompatActivity() {
             bottomMargin = dp(10)
         })
 
-        if (!compact) mainCol.addView(saveBtn, LinearLayout.LayoutParams(match, wrap))
         val contentScroll = ScrollView(this).apply {
             isFillViewport = true
             addView(mainCol)
@@ -954,9 +950,6 @@ class MainActivity : AppCompatActivity() {
             else LinearLayout.LayoutParams(0, match, 1f)
         masterRoot.addView(contentScroll, contentParams)
         if (compact) {
-            masterRoot.addView(saveBtn, LinearLayout.LayoutParams(match, wrap).apply {
-                setMargins(dp(10), dp(4), dp(10), dp(6))
-            })
             val bottomNav = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -979,7 +972,7 @@ class MainActivity : AppCompatActivity() {
             masterRoot.addView(bottomNav, LinearLayout.LayoutParams(match, wrap))
         }
         setContentView(masterRoot)
-        updateSystemStatusBar()
+        updatePermissionStatus()
         accountListener?.remove()
         accountListener = ZuAutoCloudManager.monitorAccount(this, onRestored = {
             if (lockReason == "expired" && !isFinishing && !isDestroyed) recreate()
@@ -1444,6 +1437,7 @@ class MainActivity : AppCompatActivity() {
         }
         val driverName = prefs.getString("USER_NAME", "Driver") ?: "Driver"
         userBox.text = "$driverName ▾"
+        userBox.setTextColor(Color.parseColor("#10264D"))
     }
 
     private fun renderDriverProfile(synced: Boolean) {
@@ -2038,12 +2032,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (!accessLocked && ::footerSystemText.isInitialized && ZuAutoCloudManager.isUserRegistered(this)) {
+        if (!accessLocked && ::permissionStatus.isInitialized && ZuAutoCloudManager.isUserRegistered(this)) {
             val expiry = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE).getLong("PLAN_EXPIRES_AT_MILLIS", 0L)
             if (expiry in 1..System.currentTimeMillis()) lockDriverAccess("expired")
         }
-        if (accessLocked || !::footerSystemText.isInitialized || !ZuAutoCloudManager.isUserRegistered(this)) return
-        updateSystemStatusBar()
+        if (accessLocked || !::permissionStatus.isInitialized || !ZuAutoCloudManager.isUserRegistered(this)) return
+        updatePermissionStatus()
         if (ZuAutoCloudManager.isUserRegistered(this)) {
             ZuAutoCloudManager.syncDriverValidityFromCloud(this) { synced ->
                 if (synced && !isFinishing && !isDestroyed) updatePlanBadge()
@@ -2051,23 +2045,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateSystemStatusBar() {
-        val enabledServices = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: ""
-        val isAccActive = enabledServices.contains(packageName, ignoreCase = true)
-        val isOverlayOk = Settings.canDrawOverlays(this)
+    private fun accessibilityEnabled(): Boolean {
+        val manager = getSystemService(android.view.accessibility.AccessibilityManager::class.java) ?: return false
+        val component = android.content.ComponentName(this, AutoAcceptService::class.java)
+        return manager.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            .any { service ->
+                val info = service.resolveInfo?.serviceInfo
+                info != null && android.content.ComponentName(info.packageName, info.name) == component
+            }
+    }
 
-        if (isAccActive && isOverlayOk) {
-            footerSystemText.text = "ılılı  ZuAuto Engine Ready"
-            footerOnlineText.text = "● Online"
-            footerOnlineText.setTextColor(Color.parseColor("#10B981"))
-        } else {
-            footerSystemText.text = "ılılı  Setup Needed"
-            footerOnlineText.text = "● Permission"
-            footerOnlineText.setTextColor(Color.parseColor("#F59E0B"))
+    private fun permissionsReady() = Settings.canDrawOverlays(this) && accessibilityEnabled()
+
+    private fun openMissingPermission() {
+        if (!accessibilityEnabled()) {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        } else if (!Settings.canDrawOverlays(this)) {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
         }
+    }
+
+    private fun updatePermissionStatus() {
+        if (accessLocked || !::permissionStatus.isInitialized || !::saveProfileButton.isInitialized) return
+        val ready = permissionsReady()
+        permissionStatus.text = if (ready) "✓ Permissions ready" else "● Permission needed"
+        permissionStatus.setTextColor(Color.parseColor(if (ready) "#14623F" else "#805514"))
+        permissionStatus.background = if (ready) createNeonBox("#E6F5EC", "#76BD96", 16)
+            else createNeonBox("#FFF2D5", "#C79838", 16)
+        permissionStatus.isClickable = !ready
+        saveProfileButton.isEnabled = ready
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) updatePermissionStatus()
     }
 
     private fun createNeonBox(fillHex: String, strokeHex: String, radiusDp: Int): GradientDrawable {
