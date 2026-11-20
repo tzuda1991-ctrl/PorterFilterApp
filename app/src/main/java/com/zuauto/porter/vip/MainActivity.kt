@@ -896,8 +896,8 @@ class MainActivity : AppCompatActivity() {
                     .putString("SWIPE_SPEED", selectedSpeed)
                     .apply()
 
-                if (Settings.canDrawOverlays(this)) startFloatingWidget()
-                Toast.makeText(this, "✅ Config Saved: ZuAuto Active", Toast.LENGTH_SHORT).show()
+                if (Settings.canDrawOverlays(this@MainActivity)) startFloatingWidget()
+                Toast.makeText(this@MainActivity, "Profile saved", Toast.LENGTH_SHORT).show()
             }
         }
 
