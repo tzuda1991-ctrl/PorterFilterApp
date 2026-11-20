@@ -11,8 +11,12 @@ android {
         applicationId "com.zu.provip"
         minSdk 26
         targetSdk 34
-        versionCode 10
-        versionName "10.0-ZuAuto"
+        versionCode providers.gradleProperty('zuVersionCode').map { it.toInteger() }.getOrElse(11)
+        versionName providers.gradleProperty('zuVersionName').getOrElse('11.0-local')
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {

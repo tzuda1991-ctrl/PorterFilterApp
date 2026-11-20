@@ -241,6 +241,11 @@ class MainActivity : AppCompatActivity() {
             typeface = Typeface.DEFAULT_BOLD
         }
         titleCol.addView(zTitle)
+        titleCol.addView(TextView(this).apply {
+            text = "v${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}"
+            textSize = 12f
+            setTextColor(Color.parseColor("#42536D"))
+        })
 
 
         val historyBtn = TextView(this).apply {

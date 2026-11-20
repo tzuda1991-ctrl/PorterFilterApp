@@ -18,15 +18,19 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.4'
+      - name: Set APK version
+        run: |
+          echo "ZU_VERSION_CODE=$((10 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "ZU_VERSION_NAME=11.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
       - name: Build Debug APKs
-        run: gradle assembleDebug
+        run: gradle assembleDebug "-PzuVersionCode=$ZU_VERSION_CODE" "-PzuVersionName=$ZU_VERSION_NAME"
       - name: Upload Driver App APK
         uses: actions/upload-artifact@v4
         with:
-          name: ZuAuto-Driver-App
+          name: ZU-Smart-Driver-v${{ env.ZU_VERSION_NAME }}
           path: app/build/outputs/apk/debug/app-debug.apk
       - name: Upload Admin App APK
         uses: actions/upload-artifact@v4
         with:
-          name: ZuAuto-Admin-App
+          name: ZU-Smart-Admin-v${{ env.ZU_VERSION_NAME }}
           path: admin/build/outputs/apk/debug/admin-debug.apk

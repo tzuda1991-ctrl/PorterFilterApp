@@ -198,6 +198,11 @@ class AdminMainActivity : AppCompatActivity() {
             typeface = Typeface.DEFAULT_BOLD
         }
         titleCol.addView(appTitle)
+        titleCol.addView(TextView(this).apply {
+            text = "v${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}"
+            textSize = 12f
+            setTextColor(Color.parseColor("#CBD5E1"))
+        })
         titleCol.addView(headerStatusTv)
 
         val refreshBtn = TextView(this).apply {

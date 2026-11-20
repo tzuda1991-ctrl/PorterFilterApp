@@ -11,8 +11,12 @@ android {
         applicationId "com.zu.admin"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0-Admin"
+        versionCode providers.gradleProperty('zuVersionCode').map { it.toInteger() }.getOrElse(11)
+        versionName providers.gradleProperty('zuVersionName').getOrElse('11.0-local')
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {

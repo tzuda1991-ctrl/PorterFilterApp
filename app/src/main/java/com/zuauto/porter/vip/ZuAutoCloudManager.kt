@@ -16,8 +16,8 @@ import java.util.concurrent.Executors
 
 object ZuAutoCloudManager {
 
-    const val CURRENT_VERSION_CODE = 10
-    const val CURRENT_VERSION_NAME = "10.0-ZuAuto"
+    val CURRENT_VERSION_CODE = BuildConfig.VERSION_CODE
+    val CURRENT_VERSION_NAME = BuildConfig.VERSION_NAME
 
     private const val FIREBASE_PROJECT_ID = "gmp-demo-project-615064003"
     private const val FIRESTORE_DATABASE_ID = "ai-studio-porterfilterapp-010c463f-82c7-4c8d-8552-abb324a0cb33"
