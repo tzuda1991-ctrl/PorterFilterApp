@@ -158,6 +158,41 @@ service cloud.firestore {
         && request.resource.data.orderId == order;
     }
 
+    match /push_accounts/{uid}/push_devices/{installation} {
+      allow create, update: if ownGoogleAccount(uid)
+        && request.resource.data.keys().hasOnly(['token', 'audience', 'sessionAuthTime'])
+        && request.resource.data.token is string
+        && request.resource.data.token.size() > 0
+        && request.resource.data.token.size() <= 2048
+        && request.resource.data.sessionAuthTime == request.auth.token.auth_time
+        && ((request.resource.data.audience == 'driver' && activeDriverSession())
+            || (request.resource.data.audience == 'admin' && isAdmin()));
+      allow delete: if ownGoogleAccount(uid);
+    }
+
+    match /notification_requests/{id} {
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['kind', 'planId'])
+        && request.resource.data.kind == 'plan'
+        && request.resource.data.planId is string;
+    }
+
+    match /telegram_config/settings {
+      allow get: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['chatId', 'enabled'])
+        && request.resource.data.chatId is string
+        && request.resource.data.chatId.matches('^-?[0-9]{1,20}$')
+        && request.resource.data.enabled is bool;
+    }
+
+    match /telegram_tests/{id} {
+      allow get: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['status'])
+        && request.resource.data.status == 'pending';
+    }
+
     match /{collection}/{document} {
       allow read, write: if collection in [
         'orders', 'payment_requests', 'license_keys',

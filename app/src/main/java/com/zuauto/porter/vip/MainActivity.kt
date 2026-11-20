@@ -116,6 +116,7 @@ class MainActivity : AppCompatActivity() {
                     purchaseDialog?.dismiss()
                     purchaseDialog = null
                     showDriverDashboard()
+                    com.zu.auth.PushNotifications.initialize(this@MainActivity)
                 } else if (status == "suspended" || status == "deleted") {
                     lockDriverAccess(status)
                 } else if (formFailure != null) {
@@ -415,9 +416,8 @@ class MainActivity : AppCompatActivity() {
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             minimumHeight = dp(44)
-            val profileIcon = context.getDrawable(R.drawable.ic_dashboard_profile)?.mutate()?.apply {
-                setBounds(0, 0, dp(20), dp(20))
-                setTint(Color.parseColor("#24558A"))
+            val profileIcon = context.getDrawable(R.drawable.zu_default_profile)?.mutate()?.apply {
+                setBounds(0, 0, dp(30), dp(30))
             }
             setCompoundDrawablesRelative(profileIcon, null, null, null)
             compoundDrawablePadding = dp(8)
@@ -1574,16 +1574,10 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, dp(12))
         }
-        val avatar = TextView(this).apply {
-            text = "👤"
-            textSize = 28f
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0F172A"))
-                cornerRadius = dp(24).toFloat()
-                setStroke(dp(1), Color.parseColor("#00E5FF"))
-            }
-            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply { rightMargin = dp(12) }
+        val avatar = ImageView(this).apply {
+            setImageResource(R.drawable.zu_default_profile)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(12) }
         }
         val profileCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

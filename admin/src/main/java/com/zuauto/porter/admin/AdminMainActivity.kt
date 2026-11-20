@@ -136,6 +136,7 @@ class AdminMainActivity : AppCompatActivity() {
                 if (allowed) {
                     isAuthenticated = true
                     buildAdminDashboard()
+                    com.zu.auth.PushNotifications.initialize(this@AdminMainActivity)
                     autoRefreshHandler.removeCallbacks(autoRefreshRunnable)
                     autoRefreshHandler.post(autoRefreshRunnable)
                 } else {
@@ -1310,6 +1311,15 @@ class AdminMainActivity : AppCompatActivity() {
             isChecked = plan?.getBoolean("enabled") != false
         }
         form.addView(enabled)
+        val notify = CheckBox(this).apply {
+            text = "Push notification to drivers"
+            isEnabled = enabled.isChecked
+        }
+        enabled.setOnCheckedChangeListener { _, active ->
+            notify.isEnabled = active
+            if (!active) notify.isChecked = false
+        }
+        form.addView(notify)
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (plan == null) "Add plan" else "Edit plan")
             .setView(ScrollView(this).apply { addView(form) })
@@ -1326,19 +1336,27 @@ class AdminMainActivity : AppCompatActivity() {
                 price == null || price !in 1..1_000_000 -> amount.error = "Enter a valid price"
                 duration == null || duration !in 1..3650 -> days.error = "Enter 1 to 3650 days"
                 else -> {
-                    val document = plan?.reference ?: com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                        .collection("subscription_plans").document()
+                    val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    val document = plan?.reference ?: firestore.collection("subscription_plans").document()
                     save.isEnabled = false
-                    document.set(mapOf(
+                    val shouldNotify = notify.isChecked && enabled.isChecked
+                    firestore.runBatch { batch ->
+                        batch.set(document, mapOf(
                         "name" to title,
                         "price" to price,
                         "durationDays" to duration,
                         "description" to details.text.toString().trim(),
                         "enabled" to enabled.isChecked
-                    ), com.google.firebase.firestore.SetOptions.merge()).addOnCompleteListener {
+                        ), com.google.firebase.firestore.SetOptions.merge())
+                        if (shouldNotify) {
+                            batch.set(firestore.collection("notification_requests").document(),
+                                mapOf("kind" to "plan", "planId" to document.id))
+                        }
+                    }.addOnCompleteListener {
                         if (!dialog.isShowing) return@addOnCompleteListener
                         save.isEnabled = true
                         if (it.isSuccessful) {
+                            if (shouldNotify) Toast.makeText(this, "Plan saved and push queued.", Toast.LENGTH_LONG).show()
                             dialog.dismiss()
                             showPlanManagement()
                         } else {
@@ -1346,6 +1364,111 @@ class AdminMainActivity : AppCompatActivity() {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private fun showTelegramNotifications() {
+        val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+        val settings = firestore.collection("telegram_config").document("settings")
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        val chatId = EditText(this).apply {
+            hint = "Telegram chat ID"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
+            setSingleLine(true)
+        }
+        val enabled = Switch(this).apply { text = "Mirror admin notifications to Telegram" }
+        val status = TextView(this).apply {
+            text = "Loading Telegram settings…"
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        form.addView(chatId)
+        form.addView(enabled)
+        form.addView(status)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Telegram notifications")
+            .setView(form)
+            .setNegativeButton("Close", null)
+            .setNeutralButton("Send test", null)
+            .setPositiveButton("Save", null)
+            .show()
+        val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        val test = dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+        var savedChat = ""
+        var testListener: com.google.firebase.firestore.ListenerRegistration? = null
+        dialog.setOnDismissListener { testListener?.remove() }
+        save.isEnabled = false
+        test.isEnabled = false
+
+        settings.get(com.google.firebase.firestore.Source.SERVER).addOnCompleteListener { task ->
+            if (!dialog.isShowing) return@addOnCompleteListener
+            if (task.isSuccessful) {
+                savedChat = task.result.getString("chatId").orEmpty()
+                chatId.setText(savedChat)
+                enabled.isChecked = task.result.getBoolean("enabled") == true
+                status.text = "Use the chat ID where your bot can send messages."
+                save.isEnabled = true
+                test.isEnabled = savedChat.isNotEmpty()
+            } else {
+                status.text = "Could not load Telegram settings."
+            }
+        }
+        save.setOnClickListener {
+            val destination = chatId.text.toString().trim()
+            if (!destination.matches(Regex("-?[0-9]{1,20}"))) {
+                chatId.error = "Enter a numeric Telegram chat ID"
+                return@setOnClickListener
+            }
+            save.isEnabled = false
+            test.isEnabled = false
+            settings.set(mapOf("chatId" to destination, "enabled" to enabled.isChecked)).addOnCompleteListener { task ->
+                if (!dialog.isShowing) return@addOnCompleteListener
+                if (task.isSuccessful) savedChat = destination
+                status.text = if (task.isSuccessful) "Telegram settings saved." else "Could not save Telegram settings."
+                save.isEnabled = true
+                test.isEnabled = savedChat.isNotEmpty()
+            }
+        }
+        test.setOnClickListener {
+            if (chatId.text.toString().trim() != savedChat) {
+                status.text = "Save the chat ID before sending a test."
+                return@setOnClickListener
+            }
+            test.isEnabled = false
+            status.text = "Waiting for the server to send the test…"
+            val request = firestore.collection("telegram_tests").document()
+            request.set(mapOf("status" to "pending")).addOnCompleteListener { task ->
+                if (!dialog.isShowing) return@addOnCompleteListener
+                if (!task.isSuccessful) {
+                    status.text = "Could not queue the test."
+                    test.isEnabled = true
+                    return@addOnCompleteListener
+                }
+                val timeout = Runnable {
+                    testListener?.remove()
+                    if (dialog.isShowing) {
+                        status.text = "No server response yet. Check that notification functions are deployed."
+                        test.isEnabled = true
+                    }
+                }
+                testListener = request.addSnapshotListener { snapshot, error ->
+                    if (!dialog.isShowing) return@addSnapshotListener
+                    val state = snapshot?.getString("status")
+                    if (state == "sent" || state == "failed" || error != null) {
+                        autoRefreshHandler.removeCallbacks(timeout)
+                        testListener?.remove()
+                        test.isEnabled = true
+                        status.text = when (state) {
+                            "sent" -> "Telegram test delivered."
+                            "failed" -> snapshot?.getString("error") ?: "Telegram test failed."
+                            else -> "Could not read test status."
+                        }
+                    }
+                }
+                autoRefreshHandler.postDelayed(timeout, 25_000)
             }
         }
     }
@@ -1483,6 +1606,10 @@ class AdminMainActivity : AppCompatActivity() {
         col.addView(Button(this).apply {
             text = "PLAN MANAGEMENT"
             setOnClickListener { showPlanManagement() }
+        })
+        col.addView(Button(this).apply {
+            text = "TELEGRAM NOTIFICATIONS"
+            setOnClickListener { showTelegramNotifications() }
         })
         col.addView(headTv)
 
