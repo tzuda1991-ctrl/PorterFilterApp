@@ -19,11 +19,22 @@ object ZuAutoCloudManager {
     val CURRENT_VERSION_CODE = BuildConfig.VERSION_CODE
     val CURRENT_VERSION_NAME = BuildConfig.VERSION_NAME
 
-    private const val FIREBASE_PROJECT_ID = "gmp-demo-project-615064003"
-    private const val FIRESTORE_DATABASE_ID = "ai-studio-porterfilterapp-010c463f-82c7-4c8d-8552-abb324a0cb33"
-    private const val FIREBASE_API_KEY = "AIzaSyD3qvSOb402ydPohe7F-Ua_MVXzur0igSc"
-    private const val FIRESTORE_BASE_URL =
-        "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/$FIRESTORE_DATABASE_ID/documents"
+    private val auth get() = com.google.firebase.auth.FirebaseAuth.getInstance()
+    private val FIREBASE_API_KEY get() = com.google.firebase.FirebaseApp.getInstance().options.apiKey
+    private val FIRESTORE_BASE_URL
+        get() = "https://firestore.googleapis.com/v1/projects/${com.google.firebase.FirebaseApp.getInstance().options.projectId}/databases/(default)/documents"
+
+    private fun URL.authorizedConnection(): HttpURLConnection {
+        val user = checkNotNull(auth.currentUser)
+        val token = com.google.android.gms.tasks.Tasks.await(
+            user.getIdToken(false), 10, java.util.concurrent.TimeUnit.SECONDS
+        ).token ?: error("Sign-in token unavailable")
+        return (openConnection() as HttpURLConnection).apply {
+            connectTimeout = 8000
+            readTimeout = 8000
+            setRequestProperty("Authorization", "Bearer $token")
+        }
+    }
 
     private val executor = Executors.newFixedThreadPool(4)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -51,7 +62,7 @@ object ZuAutoCloudManager {
         executor.execute {
             val result = runCatching {
                 val connection = URL("$FIRESTORE_BASE_URL/app_config/payment_settings?key=$FIREBASE_API_KEY")
-                    .openConnection() as HttpURLConnection
+                    .authorizedConnection()
                 try {
                     connection.connectTimeout = 8000
                     connection.readTimeout = 8000
@@ -70,15 +81,17 @@ object ZuAutoCloudManager {
 
     fun isUserRegistered(context: Context): Boolean {
         val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
-        return prefs.getBoolean("IS_REGISTERED", false) && prefs.getString("USER_PHONE", "")?.isNotEmpty() == true
+        return auth.currentUser?.uid?.let { it == prefs.getString("USER_UID", null) } == true &&
+            prefs.getBoolean("IS_REGISTERED", false)
     }
 
     fun isSubscriptionActive(context: Context): Boolean {
+        if (!isUserRegistered(context)) return false
         val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         val accountStatus = prefs.getString("DRIVER_ACCOUNT_STATUS", "active")
         if (accountStatus == "suspended" || accountStatus == "deleted") return false
         val expiresAt = prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L)
-        if (expiresAt == 0L) return true
+        if (expiresAt == 0L) return false
         return System.currentTimeMillis() < expiresAt
     }
 
@@ -92,7 +105,7 @@ object ZuAutoCloudManager {
         executor.execute {
             try {
                 val url = URL("$FIRESTORE_BASE_URL/app_config/version_control?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.authorizedConnection()
                 conn.requestMethod = "GET"
                 conn.connectTimeout = 8000
                 conn.readTimeout = 8000
@@ -137,80 +150,79 @@ object ZuAutoCloudManager {
     }
 
     // ---------------- USER REGISTRATION ----------------
-    fun registerDriver(
-        context: Context,
-        name: String,
-        phone: String,
-        city: String,
-        vehicle: String,
-        licenseKey: String?,
-        onDone: (success: Boolean, msg: String) -> Unit
-    ) {
+    fun connectGoogleDriver(context: Context, callback: (Boolean, String) -> Unit) {
+        val user = auth.currentUser ?: return callback(false, "Sign in with Google first.")
         val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
-        val uid = "DRV-" + System.currentTimeMillis().toString().takeLast(6)
-        val trialDays = if (!licenseKey.isNullOrBlank()) 30 else 3
-        val expiryMillis = System.currentTimeMillis() + (trialDays.toLong() * 86400000L)
-
-        prefs.edit()
-            .putBoolean("IS_REGISTERED", true)
-            .putString("USER_UID", uid)
-            .putString("USER_NAME", name)
-            .putString("USER_PHONE", phone)
-            .putString("USER_CITY", city)
-            .putString("USER_VEHICLE", vehicle)
-            .putString("USER_PLAN", if (!licenseKey.isNullOrBlank()) "VIP" else "TRIAL")
-            .putLong("PLAN_EXPIRES_AT_MILLIS", expiryMillis)
-            .apply()
-
-        // Sync to Firestore
+        prefs.edit().putBoolean("IS_REGISTERED", false).apply()
         executor.execute {
-            try {
-                val url = URL("$FIRESTORE_BASE_URL/users/$uid?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "PATCH"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
-                conn.doOutput = true
-
-                val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
-                val expiryIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date(expiryMillis))
-
-                val body = JSONObject().apply {
-                    val f = JSONObject()
-                    f.put("uid", JSONObject().put("stringValue", uid))
-                    f.put("name", JSONObject().put("stringValue", name))
-                    f.put("phone", JSONObject().put("stringValue", phone))
-                    f.put("city", JSONObject().put("stringValue", city))
-                    f.put("vehicle", JSONObject().put("stringValue", vehicle))
-                    f.put("status", JSONObject().put("stringValue", "active"))
-                    f.put("subscriptionStatus", JSONObject().put("stringValue", if (!licenseKey.isNullOrBlank()) "active" else "trial"))
-                    f.put("planName", JSONObject().put("stringValue", if (!licenseKey.isNullOrBlank()) "VIP" else "Free Trial"))
-                    f.put("validUntil", JSONObject().put("stringValue", expiryIso))
-                    f.put("appVersion", JSONObject().put("stringValue", CURRENT_VERSION_NAME))
-                    f.put("registeredAt", JSONObject().put("stringValue", nowIso))
-                    f.put("lastActiveAt", JSONObject().put("stringValue", nowIso))
-                    put("fields", f)
+            val result = runCatching {
+                val token = com.google.android.gms.tasks.Tasks.await(
+                    user.getIdToken(false), 10, java.util.concurrent.TimeUnit.SECONDS
+                )
+                val authTime = (token.claims["auth_time"] as Number).toLong()
+                val path = "$FIRESTORE_BASE_URL/users/${user.uid}"
+                val initial = URL("$path?key=$FIREBASE_API_KEY").authorizedConnection()
+                val (code, fields) = try {
+                    val code = initial.responseCode
+                    val json = if (code == 200) initial.inputStream.bufferedReader().use {
+                        JSONObject(it.readText()).getJSONObject("fields")
+                    } else null
+                    code to json
+                } finally {
+                    initial.disconnect()
                 }
-
-                val writer = OutputStreamWriter(conn.outputStream)
-                writer.write(body.toString())
-                writer.flush()
-                writer.close()
-
-                val code = conn.responseCode
-                if (code in 200..299) {
-                    mainHandler.post {
-                        onDone(true, "Registration Successful! 3-Day Free Trial Activated.")
+                if (code == 403) error("This account may already be linked to another sign-in. Ask your admin to reset it.")
+                check(code == 200 || code == 404) { "Could not verify this device. Try again." }
+                val reset = fields?.optJSONObject("sessionAuthTime")?.optString("integerValue") == "0"
+                if (reset) {
+                    val resetAfter = fields?.optJSONObject("sessionResetAfter")?.optLong("integerValue") ?: 0L
+                    check(authTime > resetAfter) { "Phone link was reset. Sign out and choose your Google account again." }
+                }
+                if (code == 404 || reset) {
+                    val parameters = if (reset) "&updateMask.fieldPaths=sessionAuthTime&currentDocument.exists=true"
+                        else "&currentDocument.exists=false"
+                    val connection = URL("$path?key=$FIREBASE_API_KEY$parameters").authorizedConnection()
+                    try {
+                        connection.requestMethod = "PATCH"
+                        connection.doOutput = true
+                        connection.setRequestProperty("Content-Type", "application/json")
+                        val profile = JSONObject()
+                            .put("sessionAuthTime", JSONObject().put("integerValue", authTime.toString()))
+                        if (!reset) {
+                            val now = java.time.Instant.now()
+                            mapOf(
+                                "uid" to user.uid, "name" to (user.displayName ?: "Driver"),
+                                "email" to user.email.orEmpty(), "status" to "active",
+                                "planName" to "TRIAL", "subscriptionStatus" to "trial"
+                            ).forEach { (key, value) ->
+                                profile.put(key, JSONObject().put("stringValue", value))
+                            }
+                            profile.put("validUntil", JSONObject().put("timestampValue", now.plusSeconds(259200).toString()))
+                        }
+                        connection.outputStream.bufferedWriter().use {
+                            it.write(JSONObject().put("fields", profile).toString())
+                        }
+                        check(connection.responseCode in 200..299) { "Device could not be linked. Try again or contact admin." }
+                    } finally {
+                        connection.disconnect()
                     }
+                }
+                check(auth.currentUser?.uid == user.uid)
+                prefs.edit().putString("USER_UID", user.uid).apply()
+            }
+            mainHandler.post {
+                if (result.isFailure) {
+                    callback(false, result.exceptionOrNull()?.message ?: "Could not connect.")
                 } else {
-                    mainHandler.post {
-                        onDone(true, "Registered locally. Access granted!")
+                    syncDriverValidityFromCloud(context) { synced ->
+                        if (synced && auth.currentUser?.uid == user.uid &&
+                            prefs.getString("DRIVER_ACCOUNT_STATUS", "") == "active") {
+                            prefs.edit().putBoolean("IS_REGISTERED", true).apply()
+                            callback(true, "")
+                        } else {
+                            callback(false, "Driver access unavailable. Check your connection or contact admin.")
+                        }
                     }
-                }
-            } catch (_: Exception) {
-                mainHandler.post {
-                    onDone(true, "Registered! Offline mode active.")
                 }
             }
         }
@@ -228,7 +240,7 @@ object ZuAutoCloudManager {
         executor.execute {
             try {
                 val url = URL("$FIRESTORE_BASE_URL/users/$uid?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.authorizedConnection()
                 conn.requestMethod = "GET"
                 conn.connectTimeout = 6000
                 conn.readTimeout = 6000
@@ -248,9 +260,17 @@ object ZuAutoCloudManager {
                         java.time.Instant.parse(value).toEpochMilli()
                     }.getOrNull()
 
-                    val status = value("status").lowercase(Locale.ROOT)
+                    val reset = fields.optJSONObject("sessionAuthTime")?.optLong("integerValue", -1) == 0L
+                    val status = if (reset) {
+                        prefs.edit().putBoolean("IS_REGISTERED", false).apply()
+                        "suspended"
+                    } else value("status").lowercase(Locale.ROOT)
                     val editor = prefs.edit().putString(
-                        "DRIVER_ACCOUNT_STATUS", if (status == "suspended" || status == "blocked") "suspended" else "active"
+                        "DRIVER_ACCOUNT_STATUS", when (status) {
+                            "suspended", "blocked" -> "suspended"
+                            "deleted" -> "deleted"
+                            else -> "active"
+                        }
                     )
                     mapOf("name" to "USER_NAME", "phone" to "USER_PHONE",
                         "city" to "USER_CITY", "vehicle" to "USER_VEHICLE").forEach { (field, preference) ->
@@ -274,8 +294,9 @@ object ZuAutoCloudManager {
                             .apply()
                     }
                     mainHandler.post { onSynced(true) }
-                } else if (code == 404) {
-                    prefs.edit().putString("DRIVER_ACCOUNT_STATUS", "deleted").apply()
+                } else if (code == 403 || code == 404) {
+                    prefs.edit().putBoolean("IS_REGISTERED", false).apply()
+                    prefs.edit().putString("DRIVER_ACCOUNT_STATUS", if (code == 404) "deleted" else "suspended").apply()
                     mainHandler.post { onSynced(true) }
                 } else {
                     mainHandler.post { onSynced(false) }
@@ -292,7 +313,7 @@ object ZuAutoCloudManager {
             val list = mutableListOf<SubscriptionPlan>()
             try {
                 val url = URL("$FIRESTORE_BASE_URL:runQuery?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.authorizedConnection()
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.connectTimeout = 8000
@@ -362,13 +383,13 @@ object ZuAutoCloudManager {
         val driverName = prefs.getString("USER_NAME", "Driver") ?: "Driver"
         val driverPhone = prefs.getString("USER_PHONE", "+91 98765 43210") ?: "+91 98765 43210"
 
-        val reqId = "PAY-" + System.currentTimeMillis().toString().takeLast(8)
+        val reqId = "PAY-" + java.util.UUID.randomUUID().toString()
         val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
 
         executor.execute {
             try {
                 val url = URL("$FIRESTORE_BASE_URL/payment_requests/$reqId?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.authorizedConnection()
                 conn.requestMethod = "PATCH"
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.connectTimeout = 8000
@@ -416,96 +437,6 @@ object ZuAutoCloudManager {
     }
 
     // ---------------- LICENSE KEY ACTIVATION ----------------
-    fun redeemLicenseKey(
-        context: Context,
-        key: String,
-        onDone: (success: Boolean, msg: String) -> Unit
-    ) {
-        val cleanKey = key.trim().uppercase(Locale.US)
-        if (cleanKey.isEmpty()) {
-            onDone(false, "Please enter a valid key code")
-            return
-        }
-
-        executor.execute {
-            try {
-                val url = URL("$FIRESTORE_BASE_URL/license_keys/$cleanKey?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
-
-                if (conn.responseCode in 200..299) {
-                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
-                    val resp = reader.readText()
-                    reader.close()
-
-                    val json = JSONObject(resp)
-                    val fields = json.optJSONObject("fields")
-                    val isUsed = fields?.optJSONObject("isUsed")?.optBoolean("booleanValue", false) ?: false
-                    val durationDays = fields?.optJSONObject("durationDays")?.optInt("integerValue", 30) ?: 30
-                    val planName = fields?.optJSONObject("planName")?.optString("stringValue", "vip") ?: "vip"
-
-                    if (isUsed) {
-                        mainHandler.post { onDone(false, "This license key is already redeemed.") }
-                        return@execute
-                    }
-
-                    // Mark as used in Firestore
-                    val patchConn = URL("$FIRESTORE_BASE_URL/license_keys/$cleanKey?updateMask.fieldPaths=isUsed&updateMask.fieldPaths=usedByPhone&key=$FIREBASE_API_KEY").openConnection() as HttpURLConnection
-                    patchConn.requestMethod = "PATCH"
-                    patchConn.setRequestProperty("Content-Type", "application/json")
-                    patchConn.doOutput = true
-
-                    val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
-                    val userPhone = prefs.getString("USER_PHONE", "Unknown")
-
-                    val patchBody = JSONObject().apply {
-                        val f = JSONObject()
-                        f.put("isUsed", JSONObject().put("booleanValue", true))
-                        f.put("usedByPhone", JSONObject().put("stringValue", userPhone))
-                        put("fields", f)
-                    }
-
-                    val writer = OutputStreamWriter(patchConn.outputStream)
-                    writer.write(patchBody.toString())
-                    writer.flush()
-                    writer.close()
-                    patchConn.responseCode
-
-                    // Extend local validity
-                    val currentExpiry = prefs.getLong("PLAN_EXPIRES_AT_MILLIS", System.currentTimeMillis())
-                    val base = if (currentExpiry > System.currentTimeMillis()) currentExpiry else System.currentTimeMillis()
-                    val newExpiry = base + (durationDays.toLong() * 86400000L)
-
-                    prefs.edit()
-                        .putString("USER_PLAN", planName)
-                        .putLong("PLAN_EXPIRES_AT_MILLIS", newExpiry)
-                        .apply()
-
-                    mainHandler.post {
-                        onDone(true, "Key Applied! Added $durationDays days of $planName.")
-                    }
-                } else {
-                    mainHandler.post { onDone(false, "Invalid license key code.") }
-                }
-            } catch (_: Exception) {
-                if (cleanKey.startsWith("ZU")) {
-                    val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
-                    val newExpiry = System.currentTimeMillis() + (30L * 86400000L)
-                    prefs.edit()
-                        .putString("USER_PLAN", "vip")
-                        .putLong("PLAN_EXPIRES_AT_MILLIS", newExpiry)
-                        .apply()
-                    mainHandler.post { onDone(true, "License Activated (30 Days VIP Access)") }
-                } else {
-                    mainHandler.post { onDone(false, "Key verification failed. Check connection.") }
-                }
-            }
-        }
-    }
-
-    // ---------------- ORDER HISTORY & TELEMETRY ----------------
     fun recordAcceptedOrder(
         context: Context,
         fare: Int,
@@ -519,7 +450,7 @@ object ZuAutoCloudManager {
         val driverName = prefs.getString("USER_NAME", "Sameer") ?: "Sameer"
         val driverPhone = prefs.getString("USER_PHONE", "+91 98765 43210") ?: "+91 98765 43210"
 
-        val orderId = "PTR-ORD-" + (10000 + (Math.random() * 89999).toInt())
+        val orderId = "PTR-ORD-" + java.util.UUID.randomUUID().toString()
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         val timeStr = sdf.format(Date())
 
@@ -541,7 +472,7 @@ object ZuAutoCloudManager {
         executor.execute {
             try {
                 val url = URL("$FIRESTORE_BASE_URL/orders/$orderId?key=$FIREBASE_API_KEY")
-                val conn = url.openConnection() as HttpURLConnection
+                val conn = url.authorizedConnection()
                 conn.requestMethod = "PATCH"
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.doOutput = true

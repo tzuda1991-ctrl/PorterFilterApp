@@ -189,6 +189,7 @@ object AdminCloudService {
                         val city = f.optJSONObject("city")?.optString("stringValue", "Bengaluru") ?: "Bengaluru"
                         val vehicle = f.optJSONObject("vehicle")?.optString("stringValue", "Porter") ?: "Porter"
                         val status = f.optJSONObject("status")?.optString("stringValue", "active") ?: "active"
+                        if (status == "deleted") continue
                         val plan = f.optJSONObject("planName")?.optString("stringValue", "VIP") ?: "VIP"
                         val exp = driverExpiry(f)
                         list.add(DriverItem(uid, name, phone, city, vehicle, status, plan, exp))
@@ -224,7 +225,13 @@ object AdminCloudService {
     }
 
     fun deleteDriver(uid: String, callback: (Boolean) -> Unit) =
-        changeDriver(uid, emptyMap(), callback)
+        changeDriver(uid, mapOf("status" to "deleted"), callback)
+
+    fun resetDriverSession(uid: String, callback: (Boolean) -> Unit) =
+        changeDriver(uid, mapOf(
+            "sessionAuthTime" to "0",
+            "sessionResetAfter" to java.time.Instant.now().epochSecond.toString()
+        ), callback)
 
     private fun changeDriver(
         uid: String,
@@ -254,13 +261,14 @@ object AdminCloudService {
                 try {
                     connection.connectTimeout = 8000
                     connection.readTimeout = 8000
-                    connection.requestMethod = if (fields.isEmpty()) "DELETE" else "PATCH"
+                    connection.requestMethod = "PATCH"
                     if (fields.isNotEmpty()) {
                         connection.doOutput = true
                         connection.setRequestProperty("Content-Type", "application/json")
                         val values = JSONObject()
                         fields.forEach { (key, value) ->
-                            values.put(key, JSONObject().put("stringValue", value))
+                            val type = if (key == "sessionAuthTime" || key == "sessionResetAfter") "integerValue" else "stringValue"
+                            values.put(key, JSONObject().put(type, value))
                         }
                         connection.outputStream.bufferedWriter().use {
                             it.write(JSONObject().put("fields", values).toString())

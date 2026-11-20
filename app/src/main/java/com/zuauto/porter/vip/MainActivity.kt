@@ -80,6 +80,79 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = Color.parseColor("#10264D")
         window.navigationBarColor = Color.parseColor("#10264D")
 
+        showGoogleLogin()
+    }
+
+    private fun showGoogleLogin() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(20), dp(24), dp(20))
+            setBackgroundColor(Color.parseColor("#EEF5FD"))
+        }
+        root.addView(TextView(this).apply {
+            text = "ZU Smart"
+            textSize = 28f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#10264D"))
+        })
+        val message = TextView(this).apply {
+            text = "Sign in to connect your driver account."
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#42536D"))
+            setPadding(0, dp(10), 0, dp(12))
+        }
+        root.addView(message)
+        val button = Button(this).apply {
+            text = "Continue with Google"
+            isAllCaps = false
+        }
+        root.addView(button)
+        val switchAccount = Button(this).apply {
+            text = "Use another Google account"
+            isAllCaps = false
+            visibility = View.GONE
+            setOnClickListener {
+                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                showGoogleLogin()
+            }
+        }
+        root.addView(switchAccount)
+        setContentView(root)
+
+        fun connect() {
+            button.isEnabled = false
+            switchAccount.visibility = View.GONE
+            message.text = "Checking driver access…"
+            ZuAutoCloudManager.connectGoogleDriver(this) { ready, error ->
+                if (isFinishing || isDestroyed) return@connectGoogleDriver
+                if (ready) {
+                    showDriverDashboard()
+                } else {
+                    message.text = error
+                    button.text = "Try again"
+                    button.isEnabled = true
+                    button.setOnClickListener { connect() }
+                    switchAccount.visibility = View.VISIBLE
+                }
+            }
+        }
+        button.setOnClickListener {
+            button.isEnabled = false
+            com.zu.auth.GoogleAccountSignIn.signIn(
+                this, getString(R.string.default_web_client_id), android.os.CancellationSignal()
+            ) { result ->
+                if (isFinishing || isDestroyed) return@signIn
+                result.onSuccess { connect() }.onFailure {
+                    message.text = "Google sign-in did not complete. Try again."
+                    button.isEnabled = true
+                }
+            }
+        }
+        if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) connect()
+    }
+
+    private fun showDriverDashboard() {
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         selectedSpeed = prefs.getString("SWIPE_SPEED", "QUICK") ?: "QUICK"
         selectedCity = prefs.getString("SELECTED_CITY", "Bengaluru") ?: "Bengaluru"
@@ -89,11 +162,6 @@ class MainActivity : AppCompatActivity() {
         }
         prefs.getString("DROP_FILTER", "")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.let {
             selectedDropSet.addAll(it)
-        }
-
-        // Check if first-time user registration needed
-        if (!ZuAutoCloudManager.isUserRegistered(this)) {
-            showRegistrationDialog()
         }
 
         // Check remote in-app OTA version update
@@ -190,7 +258,6 @@ class MainActivity : AppCompatActivity() {
         addNavItem("🏠", "Home", true) {}
         addNavItem("📦", "History", false) { showOrderHistoryDialog() }
         addNavItem("🏍️", "Porter", false) { launchPorterPartnerApp(this) }
-        addNavItem("🔑", "License", false) { showLicenseKeyDialog() }
         addNavItem("⚙️", "Settings", false) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
@@ -977,6 +1044,7 @@ class MainActivity : AppCompatActivity() {
             masterRoot.addView(bottomNav, LinearLayout.LayoutParams(match, wrap))
         }
         setContentView(masterRoot)
+        updateSystemStatusBar()
     }
 
     private fun dashboardAction(
@@ -1080,109 +1148,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------------- FIRST-TIME REGISTRATION DIALOG ----------------
-    private fun showRegistrationDialog() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(16))
-            setBackgroundColor(Color.parseColor("#080D1A"))
-        }
-
-        val titleTv = TextView(this).apply {
-            text = "⚡ Welcome to ZuAuto VIP"
-            textSize = 18f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#00E5FF"))
-            gravity = Gravity.CENTER
-        }
-        val subTv = TextView(this).apply {
-            text = "Please complete registration to activate the auto-dispatch engine on this device."
-            textSize = 11f
-            setTextColor(Color.parseColor("#94A3B8"))
-            gravity = Gravity.CENTER
-            setPadding(0, dp(4), 0, dp(14))
-        }
-        root.addView(titleTv)
-        root.addView(subTv)
-
-        val nameIn = EditText(this).apply {
-            hint = "Full Name (e.g. Sameer Khan)"
-            setHintTextColor(Color.parseColor("#64748B"))
-            setTextColor(Color.WHITE)
-            textSize = 13f
-            background = createNeonBox("#0F172A", "#334155", 10)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(10)
-            }
-        }
-        val phoneIn = EditText(this).apply {
-            hint = "Mobile Number (+91 ...)"
-            setHintTextColor(Color.parseColor("#64748B"))
-            setTextColor(Color.parseColor("#00E5FF"))
-            textSize = 13f
-            inputType = InputType.TYPE_CLASS_PHONE
-            background = createNeonBox("#0F172A", "#334155", 10)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(10)
-            }
-        }
-        val keyIn = EditText(this).apply {
-            hint = "License Key (Optional, e.g. ZU-30D-XXXX)"
-            setHintTextColor(Color.parseColor("#64748B"))
-            setTextColor(Color.parseColor("#FACC15"))
-            textSize = 13f
-            background = createNeonBox("#0F172A", "#F59E0B", 10)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(14)
-            }
-        }
-
-        root.addView(nameIn)
-        root.addView(phoneIn)
-        root.addView(keyIn)
-
-        val dialog = AlertDialog.Builder(this)
-            .setView(root)
-            .setCancelable(false)
-            .create()
-
-        val submitBtn = Button(this).apply {
-            text = "ACTIVATE & START RIDING"
-            setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD
-            background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#0284C7"), Color.parseColor("#00E5FF"))
-            ).apply { cornerRadius = dp(12).toFloat() }
-            setOnClickListener {
-                val n = nameIn.text.toString().trim()
-                val p = phoneIn.text.toString().trim()
-                val k = keyIn.text.toString().trim()
-                if (n.isEmpty() || p.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "Please fill in your name and phone number", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                ZuAutoCloudManager.registerDriver(
-                    context = this@MainActivity,
-                    name = n,
-                    phone = p,
-                    city = selectedCity,
-                    vehicle = "Porter Delivery",
-                    licenseKey = if (k.isNotEmpty()) k else null
-                ) { success, msg ->
-                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-                    userBox.text = Html.fromHtml("<font color='#42536D'>Driver</font><br><b><font color='#10264D'>$n ▾</font></b>", Html.FROM_HTML_MODE_LEGACY)
-                    dialog.dismiss()
-                }
-            }
-        }
-        root.addView(submitBtn)
-        dialog.show()
-    }
-
     // ---------------- MANDATORY OTA IN-APP UPDATE DIALOG ----------------
     private fun showUpdateDialog(isForce: Boolean, newVersionName: String, releaseNotes: String, downloadUrl: String) {
         val root = LinearLayout(this).apply {
@@ -1600,21 +1565,6 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(10), 0, 0)
         }
-        val redeemKeyBtn = Button(this).apply {
-            text = "🔑 REDEEM KEY"
-            textSize = 10.5f
-            setTextColor(Color.parseColor("#FACC15"))
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#161E2E"))
-                cornerRadius = dp(8).toFloat()
-                setStroke(dp(1), Color.parseColor("#F59E0B"))
-            }
-            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(6) }
-            setOnClickListener {
-                mainDialog?.dismiss()
-                showLicenseKeyDialog()
-            }
-        }
         val closeBtn = Button(this).apply {
             text = "CLOSE"
             textSize = 10.5f
@@ -1626,7 +1576,6 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, dp(38), 0.6f)
             setOnClickListener { mainDialog?.dismiss() }
         }
-        if (canPurchase) actionsRow.addView(redeemKeyBtn)
         actionsRow.addView(closeBtn)
         root.addView(actionsRow)
 
@@ -1800,74 +1749,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------------- LICENSE KEY REDEMPTION DIALOG ----------------
-    private fun showLicenseKeyDialog() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-            setBackgroundColor(Color.parseColor("#080D1A"))
-        }
-
-        val titleTv = TextView(this).apply {
-            text = "🔑 Apply License Key"
-            textSize = 16f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#FACC15"))
-        }
-        val subTv = TextView(this).apply {
-            text = "Enter a subscription activation code provided by Admin to extend VIP access."
-            textSize = 10.5f
-            setTextColor(Color.parseColor("#94A3B8"))
-            setPadding(0, dp(3), 0, dp(12))
-        }
-        root.addView(titleTv)
-        root.addView(subTv)
-
-        val keyIn = EditText(this).apply {
-            hint = "ZU-KEY-XXXXX"
-            setHintTextColor(Color.parseColor("#64748B"))
-            setTextColor(Color.parseColor("#FACC15"))
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            background = createNeonBox("#050811", "#F59E0B", 10)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(12)
-            }
-        }
-        root.addView(keyIn)
-
-        val dialog = AlertDialog.Builder(this)
-            .setView(root)
-            .setNegativeButton("Cancel", null)
-            .create()
-
-        val applyBtn = Button(this).apply {
-            text = "REDEEM KEY"
-            setTextColor(Color.BLACK)
-            typeface = Typeface.DEFAULT_BOLD
-            background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#F59E0B"), Color.parseColor("#FACC15"))
-            ).apply { cornerRadius = dp(10).toFloat() }
-            setOnClickListener {
-                val k = keyIn.text.toString().trim()
-                if (k.isEmpty()) return@setOnClickListener
-
-                ZuAutoCloudManager.redeemLicenseKey(this@MainActivity, k) { success, msg ->
-                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-                    if (success) {
-                        val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
-                        val planStr = prefs.getString("USER_PLAN", "VIP")?.uppercase(Locale.US) ?: "VIP"
-                        planBadge.text = "👑 $planStr"
-                        dialog.dismiss()
-                    }
-                }
-            }
-        }
-        root.addView(applyBtn)
-        dialog.show()
-    }
-
     private val bengaluruAreas by lazy {
         assets.open("bengaluru-areas.tsv").bufferedReader().useLines { lines ->
             lines.filter { it.isNotBlank() && !it.startsWith("#") }
@@ -1971,6 +1852,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!::footerSystemText.isInitialized || !ZuAutoCloudManager.isUserRegistered(this)) return
         updateSystemStatusBar()
         if (ZuAutoCloudManager.isUserRegistered(this)) {
             ZuAutoCloudManager.syncDriverValidityFromCloud(this) { synced ->

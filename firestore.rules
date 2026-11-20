@@ -16,6 +16,85 @@ service cloud.firestore {
       allow get: if verifiedGoogleAccount() && request.auth.uid == uid;
     }
 
+    function ownGoogleAccount(uid) {
+      return verifiedGoogleAccount() && request.auth.uid == uid;
+    }
+
+    function driverProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function activeDriverSession() {
+      return verifiedGoogleAccount()
+        && driverProfile().status == 'active'
+        && driverProfile().sessionAuthTime == request.auth.token.auth_time;
+    }
+
+    match /users/{uid} {
+      allow get: if ownGoogleAccount(uid) && (
+        resource == null || resource.data.sessionAuthTime == request.auth.token.auth_time
+        || resource.data.sessionAuthTime == 0
+      );
+      allow create: if ownGoogleAccount(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'name', 'email', 'status', 'planName',
+          'subscriptionStatus', 'sessionAuthTime', 'validUntil'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.name is string
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.status == 'active'
+        && request.resource.data.planName == 'TRIAL'
+        && request.resource.data.subscriptionStatus == 'trial'
+        && request.resource.data.sessionAuthTime == request.auth.token.auth_time
+        && request.resource.data.validUntil is timestamp
+        && request.resource.data.validUntil > request.time
+        && request.resource.data.validUntil <= request.time + duration.value(3, 'd') + duration.value(5, 'm');
+      allow update: if ownGoogleAccount(uid) && resource.data.status == 'active'
+        && resource.data.sessionAuthTime == 0
+        && request.auth.token.auth_time > resource.data.sessionResetAfter
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sessionAuthTime'])
+        && request.resource.data.sessionAuthTime == request.auth.token.auth_time;
+    }
+
+    match /app_config/{document} {
+      allow get: if activeDriverSession() && document in ['version_control', 'payment_settings'];
+    }
+
+    match /subscription_plans/{plan} {
+      allow read: if activeDriverSession();
+    }
+
+    function matchesCatalog(plan) {
+      let catalog = get(/databases/$(database)/documents/subscription_plans/$(plan.planId)).data;
+      return plan.amount == catalog.price && plan.durationDays == catalog.durationDays
+        && plan.planName == catalog.name;
+    }
+
+    function matchesDefaultPlan(plan) {
+      return (plan.planId == 'plan-daily' && plan.amount == 49 && plan.durationDays == 1 && plan.planName == 'Daily Pass')
+        || (plan.planId == 'plan-weekly' && plan.amount == 149 && plan.durationDays == 7 && plan.planName == 'Weekly Boost')
+        || (plan.planId == 'plan-monthly' && plan.amount == 499 && plan.durationDays == 30 && plan.planName == 'Pro Monthly VIP')
+        || (plan.planId == 'plan-quarterly' && plan.amount == 1199 && plan.durationDays == 90 && plan.planName == 'Super VIP 90-Day');
+    }
+
+    match /payment_requests/{payment} {
+      allow create: if activeDriverSession()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.id == payment
+        && request.resource.data.utrNumber is string
+        && request.resource.data.utrNumber.size() > 0
+        && request.resource.data.utrNumber.size() <= 64
+        && (matchesDefaultPlan(request.resource.data) || matchesCatalog(request.resource.data));
+    }
+
+    match /orders/{order} {
+      allow create: if activeDriverSession()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.orderId == order;
+    }
+
     match /{collection}/{document} {
       allow read, write: if collection in [
         'users', 'orders', 'payment_requests', 'license_keys',

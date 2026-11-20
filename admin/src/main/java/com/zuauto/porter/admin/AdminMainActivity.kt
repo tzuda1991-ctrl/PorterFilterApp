@@ -574,10 +574,23 @@ class AdminMainActivity : AppCompatActivity() {
                 }
                 .show()
         }
+        action("Reset phone link") {
+            AlertDialog.Builder(this)
+                .setTitle("Reset phone link?")
+                .setMessage("The next sign-in can link this driver's Google account again. Plan validity is preserved.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Reset") { _, _ ->
+                    dialog.dismiss()
+                    AdminCloudService.resetDriverSession(driver.uid) {
+                        finishDriverChange(it, "Phone link reset.")
+                    }
+                }
+                .show()
+        }
         action("Delete profile") {
             AlertDialog.Builder(this)
                 .setTitle("Delete ${driver.name}?")
-                .setMessage("This permanently removes driver profile ${driver.uid}. Payment and order records stay in history.")
+                .setMessage("This removes ${driver.uid} from the driver list and disables access. Payment and order records stay in history.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete profile") { _, _ ->
                     dialog.dismiss()
