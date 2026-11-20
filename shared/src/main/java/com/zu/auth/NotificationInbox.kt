@@ -19,9 +19,13 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class NotificationInbox(private val activity: Activity, uid: String, admin: Boolean, bellIcon: Int) {
+class NotificationInbox(private val activity: Activity, uid: String, admin: Boolean, bellIcon: Int,
+    private val onAction: (Action) -> Unit
+) {
+    data class Action(val kind: String, val targetId: String, val body: String, val details: List<String>)
     private data class Item(
-        val id: String, val title: String, val body: String, val details: List<String>, val time: Long
+        val id: String, val title: String, val body: String, val details: List<String>, val time: Long,
+        val action: String, val targetId: String
     )
 
     private val prefs = activity.getSharedPreferences("NotificationInbox", Context.MODE_PRIVATE)
@@ -77,7 +81,8 @@ class NotificationInbox(private val activity: Activity, uid: String, admin: Bool
                     items[source] = snapshot.documents.map { doc ->
                         Item("$source/${doc.id}", doc.getString("title").orEmpty(), doc.getString("body").orEmpty(),
                             (doc.get("details") as? List<*>)?.filterIsInstance<String>().orEmpty(),
-                            doc.getTimestamp("createdAt")?.toDate()?.time ?: 0)
+                            doc.getTimestamp("createdAt")?.toDate()?.time ?: 0,
+                            doc.getString("action").orEmpty(), doc.getString("targetId").orEmpty())
                     }
                 }
                 render()
@@ -148,6 +153,26 @@ class NotificationInbox(private val activity: Activity, uid: String, admin: Bool
         }
         for (item in notifications) {
             val unread = item.id !in read
+            val action = item.action.ifBlank {
+                when (item.title) {
+                    "ZU Smart plan available" -> "plan"
+                    "Payment approved" -> "profile"
+                    "Payment proof submitted" -> "payment"
+                    "New driver ID" -> "driver"
+                    "Order acceptance recorded" -> "order"
+                    "ZU Smart update available" -> "update"
+                    else -> ""
+                }
+            }
+            val actionLabel = when (action) {
+                "plan" -> "View plan"
+                "profile" -> "View profile"
+                "payment" -> "Review payment"
+                "driver" -> "View driver"
+                "order" -> "View order"
+                "update" -> "Check update"
+                else -> null
+            }
             val card = TextView(activity).apply {
                 text = buildString {
                     if (unread) append("● ")
@@ -155,15 +180,19 @@ class NotificationInbox(private val activity: Activity, uid: String, admin: Bool
                     append("\n").append(item.body)
                     for (detail in item.details) append("\n").append(detail)
                     if (item.time > 0) append("\n").append(date.format(item.time))
+                    if (actionLabel != null) append("\n").append(actionLabel).append(" ›")
                 }
                 setTextColor(if (unread) gold else Color.parseColor("#E2E8F0"))
                 textSize = 14f
                 setLineSpacing(dp(3).toFloat(), 1f)
                 setPadding(dp(12), dp(10), dp(12), dp(10))
                 background = shape("#192A43", if (unread) "#B8904D" else "#475569", 12)
-                if (unread) setOnClickListener {
-                    read.add(item.id)
-                    saveRead()
+                if (unread || actionLabel != null) setOnClickListener {
+                    if (read.add(item.id)) saveRead()
+                    if (actionLabel != null) {
+                        dialog?.dismiss()
+                        onAction(Action(action, item.targetId, item.body, item.details))
+                    }
                 }
             }
             panel.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })

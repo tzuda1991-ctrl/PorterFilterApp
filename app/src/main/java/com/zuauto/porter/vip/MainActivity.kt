@@ -402,7 +402,7 @@ class MainActivity : AppCompatActivity() {
         topHeader.addView(titleCol)
         topHeader.addView(plansButton, LinearLayout.LayoutParams(wrap, wrap).apply { marginStart = dp(5) })
         FirebaseAuth.getInstance().currentUser?.uid?.let { uid ->
-            val inbox = NotificationInbox(this, uid, false, R.drawable.ic_inbox_bell)
+            val inbox = NotificationInbox(this, uid, false, R.drawable.ic_inbox_bell, ::openNotificationAction)
             notificationInbox = inbox
             topHeader.addView(inbox.button, LinearLayout.LayoutParams(dp(46), dp(46)).apply { marginStart = dp(5) })
         }
@@ -1530,7 +1530,19 @@ class MainActivity : AppCompatActivity() {
 
 
     // ---------------- DRIVER PROFILE & VALIDITY / BUY DIALOG ----------------
-    private fun showDriverProfileAndValidityDialog(showPlans: Boolean = false) {
+    private fun openNotificationAction(action: NotificationInbox.Action) {
+        when (action.kind) {
+            "plan" -> showDriverProfileAndValidityDialog(showPlans = true, notification = action)
+            "profile" -> showDriverProfileAndValidityDialog()
+            "update" -> ZuAutoCloudManager.checkRemoteAppVersion(this) { force, version, notes, url ->
+                showUpdateDialog(force, version, notes, url)
+            }
+        }
+    }
+
+    private fun showDriverProfileAndValidityDialog(
+        showPlans: Boolean = false, notification: NotificationInbox.Action? = null
+    ) {
         val loading = AlertDialog.Builder(this)
             .setMessage("Checking subscription…")
             .show()
@@ -1538,7 +1550,7 @@ class MainActivity : AppCompatActivity() {
             if (accessLocked || isFinishing || isDestroyed || !loading.isShowing) return@syncDriverValidityFromCloud
             loading.dismiss()
             updatePlanBadge()
-            renderDriverProfile(synced, showPlans)
+            renderDriverProfile(synced, showPlans, notification)
         }
     }
 
@@ -1561,7 +1573,9 @@ class MainActivity : AppCompatActivity() {
         userBox.setTextColor(Color.parseColor("#10264D"))
     }
 
-    private fun renderDriverProfile(synced: Boolean, showPlans: Boolean = false) {
+    private fun renderDriverProfile(
+        synced: Boolean, showPlans: Boolean = false, notification: NotificationInbox.Action? = null
+    ) {
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         val name = prefs.getString("USER_NAME", "Driver") ?: "Driver"
         val phone = prefs.getString("USER_PHONE", "--") ?: "--"
@@ -1724,11 +1738,19 @@ class MainActivity : AppCompatActivity() {
         var mainDialog: AlertDialog? = null
 
         // Fetch Plans from Firestore
-        if (canPurchase) ZuAutoCloudManager.fetchSubscriptionPlans { plans ->
+        if (canPurchase) ZuAutoCloudManager.fetchSubscriptionPlans { availablePlans ->
+            val plans = when {
+                notification == null -> availablePlans
+                notification.targetId.isNotBlank() -> availablePlans.filter { it.id == notification.targetId }
+                else -> availablePlans.filter {
+                    notification.body == "${it.name.take(80)} · ₹${it.price}. Open Plans to view it."
+                }.let { if (it.size == 1) it else emptyList() }
+            }
             plansListContainer.removeAllViews()
             if (plans.isEmpty()) {
                 plansListContainer.addView(TextView(this).apply {
-                    text = "No plans available. Contact support."
+                    text = if (notification == null) "No plans available. Contact support." else
+                        "This plan is unavailable. Open Plans to see current offers."
                     setTextColor(Color.WHITE)
                 })
             }
@@ -1770,7 +1792,11 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val buyBtn = Button(this).apply {
-                    text = if (isTrial) "Buy · ₹${p.price}" else "Renew · ₹${p.price}"
+                    text = when {
+                        notification != null -> "Buy now · ₹${p.price}"
+                        isTrial -> "Buy · ₹${p.price}"
+                        else -> "Renew · ₹${p.price}"
+                    }
                     setTextColor(Color.parseColor("#050811"))
                     typeface = Typeface.DEFAULT_BOLD
                     textSize = 11f

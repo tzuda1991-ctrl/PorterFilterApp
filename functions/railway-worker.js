@@ -12,7 +12,7 @@ function pendingEvents(kind, document, since) {
     const updated = document.updateTime?.toMillis() >= since;
     if (kind === "payment") {
         const events = [];
-        if (created) events.push(["submitted", routeEvent(kind, null, { ...data, status: "pending" })]);
+        if (created) events.push(["submitted", routeEvent(kind, null, { ...data, status: "pending" }, document.id)]);
         const reviewedAt = typeof data.reviewedAt === "string" ? Date.parse(data.reviewedAt) : NaN;
         if ((Number.isFinite(reviewedAt) ? reviewedAt >= since : updated) && data.status === "approved") {
             events.push(["approved", routeEvent(kind, { status: "pending" }, data)]);
@@ -20,12 +20,12 @@ function pendingEvents(kind, document, since) {
         return events;
     }
     if (kind === "driver" && updated && data.driverNumber) {
-        return [[`driver-${data.driverNumber}`, routeEvent(kind, null, data)]];
+        return [[`driver-${data.driverNumber}`, routeEvent(kind, null, data, document.id)]];
     }
     if (kind === "version" && updated) {
-        return [[`version-${data.currentVersionCode}`, routeEvent(kind, null, data)]];
+        return [[`version-${data.currentVersionCode}`, routeEvent(kind, null, data, document.id)]];
     }
-    if (kind === "order" && created) return [["order", routeEvent(kind, null, data)]];
+    if (kind === "order" && created) return [["order", routeEvent(kind, null, data, document.id)]];
     return [];
 }
 
@@ -117,7 +117,7 @@ async function run() {
         const id = document.ref.path;
         enqueue(id, async () => {
             const plan = await db.collection("subscription_plans").doc(document.get("planId")).get();
-            await delivery.dispatch({ id }, routeEvent("plan", null, plan.data()));
+            await delivery.dispatch({ id }, routeEvent("plan", null, plan.data(), plan.id));
         });
     });
     listen(db.collection("telegram_tests").where("status", "==", "pending"), (document) => {

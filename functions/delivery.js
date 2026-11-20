@@ -146,6 +146,8 @@ function createDelivery(db, telegramSecret, logger = console) {
                 title: notice.title,
                 body: notice.body,
                 details: notice.details ?? [],
+                action: notice.action ?? "",
+                targetId: notice.targetId ?? "",
                 createdAt: FieldValue.serverTimestamp(),
             });
         } catch (error) {

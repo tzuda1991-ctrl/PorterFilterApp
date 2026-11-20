@@ -32,3 +32,17 @@ test("order notifications describe what the app recorded", () => {
     assert.match(notice.body, /acceptance attempt/);
     assert.equal(routeEvent("order", null, { status: "rejected" }), null);
 });
+
+test("inbox actions identify the specific plan, payment, driver and order", () => {
+    const inputs = [
+        ["plan", { name: "Starter", price: 25 }, "starter", "plan", "starter"],
+        ["payment", { status: "pending" }, "request-a", "payment", "request-a"],
+        ["driver", { driverNumber: 211126 }, "driver-a", "driver", "driver-a"],
+        ["order", { status: "Accepted", orderId: "order-a" }, "record-a", "order", "order-a"],
+    ];
+    for (const [kind, record, documentId, action, targetId] of inputs) {
+        const notice = routeEvent(kind, null, record, documentId);
+        assert.equal(notice.action, action);
+        assert.equal(notice.targetId, targetId);
+    }
+});
