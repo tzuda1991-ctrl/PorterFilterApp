@@ -258,70 +258,49 @@ class MainActivity : AppCompatActivity() {
             layoutParams = android.widget.FrameLayout.LayoutParams(match, wrap)
         }
 
-        // 1. TOP BAR: Logo + ZuAuto + History + Driver Profile + VIP Plan Pill
+        val headerCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(9), dp(10), dp(8))
+            background = createNeonBox("#FFFFFF", "#D8E3EF", 18)
+        }
         val topHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(6) }
+            setBaselineAligned(false)
         }
-
         val logoImg = ImageView(this).apply {
             setImageResource(R.drawable.ic_vip_logo)
-            layoutParams = LinearLayout.LayoutParams(dp(34), dp(34)).apply { rightMargin = dp(8) }
+            background = createNeonBox("#10264D", "#10264D", 8)
+            clipToOutline = true
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(9) }
         }
-
         val titleCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
+            addView(TextView(context).apply {
+                text = "ZU Smart"
+                textSize = 21f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#10264D"))
+            })
+            addView(TextView(context).apply {
+                text = "v${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}"
+                textSize = 11f
+                setTextColor(Color.parseColor("#42536D"))
+            })
         }
-
-        val zTitle = TextView(this).apply {
-            text = "ZU Smart"
-            textSize = 26f
-            setTextColor(Color.parseColor("#10264D"))
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        titleCol.addView(zTitle)
-        titleCol.addView(TextView(this).apply {
-            text = "v${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}"
-            textSize = 12f
-            setTextColor(Color.parseColor("#42536D"))
-        })
-
-
-        val historyBtn = TextView(this).apply {
-            text = "📦 Trips"
-            textSize = 15f
-            setTextColor(Color.parseColor("#10264D"))
-            gravity = Gravity.CENTER
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            background = createNeonBox("#F7FAFF", "#A9771D", 30)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { rightMargin = dp(6) }
-            setOnClickListener { showOrderHistoryDialog() }
-        }
-
-        val savedDriverName = prefs.getString("USER_NAME", "Driver") ?: "Driver"
-        userBox = TextView(this).apply {
-            text = Html.fromHtml("<font color='#42536D'>Driver</font><br><b><font color='#10264D'>$savedDriverName ▾</font></b>", Html.FROM_HTML_MODE_LEGACY)
-            textSize = 12f
-            setPadding(dp(6), dp(2), dp(6), dp(2))
-            setOnClickListener { showDriverProfileAndValidityDialog() }
-        }
-
-        val savedPlan = prefs.getString("USER_PLAN", "VIP")?.uppercase(Locale.US) ?: "VIP"
+        val savedPlan = prefs.getString("USER_PLAN", "TRIAL") ?: "TRIAL"
         planBadge = TextView(this).apply {
-            text = "👑 $savedPlan"
+            text = savedPlan
             textSize = 12f
             setTextColor(Color.parseColor("#8A5D13"))
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(8), dp(5), dp(8), dp(5))
-            background = createNeonBox("#FFF2CF", "#F59E0B", 40)
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            maxWidth = dp(112)
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            background = createNeonBox("#FFF2CF", "#C79838", 20)
             setOnClickListener {
                 val active = !prefs.getBoolean("BOT_ACTIVE", true)
                 prefs.edit().putBoolean("BOT_ACTIVE", active).apply()
@@ -329,30 +308,43 @@ class MainActivity : AppCompatActivity() {
                 if (Settings.canDrawOverlays(this@MainActivity)) startFloatingWidget()
             }
         }
-
         topHeader.addView(logoImg)
         topHeader.addView(titleCol)
-        mainCol.addView(topHeader)
-        val accountRow = if (compact) {
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(4), 0, dp(6))
-                mainCol.addView(this, LinearLayout.LayoutParams(match, wrap))
+        topHeader.addView(planBadge, LinearLayout.LayoutParams(wrap, wrap).apply { marginStart = dp(5) })
+        headerCard.addView(topHeader, LinearLayout.LayoutParams(match, wrap))
+        headerCard.addView(View(this).apply {
+            setBackgroundColor(Color.parseColor("#E7EDF5"))
+        }, LinearLayout.LayoutParams(match, dp(1)).apply {
+            topMargin = dp(7)
+            bottomMargin = dp(4)
+        })
+
+        val accountRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBaselineAligned(false)
+        }
+        val savedDriverName = prefs.getString("USER_NAME", "Driver") ?: "Driver"
+        userBox = TextView(this).apply {
+            text = "$savedDriverName ▾"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#10264D"))
+            gravity = Gravity.CENTER_VERTICAL
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            minimumHeight = dp(44)
+            val profileIcon = context.getDrawable(R.drawable.ic_dashboard_profile)?.mutate()?.apply {
+                setBounds(0, 0, dp(20), dp(20))
+                setTint(Color.parseColor("#24558A"))
             }
-        } else {
-            topHeader
+            setCompoundDrawablesRelative(profileIcon, null, null, null)
+            compoundDrawablePadding = dp(8)
+            setOnClickListener { showDriverProfileAndValidityDialog() }
         }
-        if (!compact) accountRow.addView(historyBtn)
-        userBox.layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
-        accountRow.addView(userBox)
-        val accountActions = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
-        }
-        planBadge.maxWidth = dp(132)
-        accountActions.addView(planBadge)
-        accountRow.addView(accountActions)
+        accountRow.addView(userBox, LinearLayout.LayoutParams(0, wrap, 1f).apply { marginEnd = dp(6) })
+        headerCard.addView(accountRow, LinearLayout.LayoutParams(match, wrap))
+        mainCol.addView(headerCard, LinearLayout.LayoutParams(match, wrap).apply { bottomMargin = dp(7) })
 
         val citySelectBtn = TextView(this).apply {
             text = "📍  $selectedCity   ▾"
@@ -901,9 +893,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        accountActions.addView(saveProfileButton, LinearLayout.LayoutParams(wrap, wrap).apply {
-            topMargin = dp(4)
-        })
+        accountRow.addView(saveProfileButton, LinearLayout.LayoutParams(wrap, wrap))
 
         val hudBtn = createCyberActionPill(
             iconStr = "🥞",
