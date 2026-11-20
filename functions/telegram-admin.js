@@ -5,7 +5,7 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { FieldValue, AggregateField } = require("firebase-admin/firestore");
 const areasByCity = require("./area-defaults.json");
 
-const { renderMenu, prompts, menuButton, keyResult } = require("./telegram-menu");
+const { renderMenu, prompts, withNavigation, actionSection, keyResult } = require("./telegram-menu");
 
 const help = [
     "ZU Smart Admin",
@@ -80,8 +80,8 @@ function parseCommand(text) {
 
 function paymentButtons(id, actions) {
     const buttons = [{ text: "Copy ID", copy_text: { text: id } }];
-    for (const [label, action] of actions) {
-        const data = "zu_" + action + ":" + id;
+    for (const [label, action, page] of actions) {
+        const data = "zu_" + action + ":" + (page ? page + ":" : "") + id;
         if (Buffer.byteLength(data) <= 64) buttons.push({ text: label, callback_data: data });
     }
     return buttons;
@@ -164,26 +164,25 @@ function commands(db) {
             return (index + 1) + ". " + [userName, planName, "₹" + amount, status].filter(Boolean).map(value => String(value).slice(0, 48)).join(" · ") +
                 "\n" + doc.id;
         }).join("\n\n");
-        const buttons = docs.map((doc, index) => paymentButtons(doc.id, [["Review", "review"]])
+        const buttons = docs.map((doc, index) => paymentButtons(doc.id, [["Review", "review", page]])
             .map(button => ({ ...button, text: (index + 1) + ". " + button.text })));
         const navigation = [];
         if (page > 1) navigation.push({ text: "Previous", callback_data: "zu_payments:" + (page - 1) });
         if (snapshot.size > limit && page < 50) navigation.push({ text: "Next", callback_data: "zu_payments:" + (page + 1) });
-        buttons.push([...navigation, menuButton]);
+        if (navigation.length) buttons.push(navigation);
         return { text: "Payments · Page " + page + "\n\n" + (text || "Nothing on this page."),
-            markup: buttons.length ? { inline_keyboard: buttons } : undefined };
+            markup: withNavigation({ inline_keyboard: buttons }, "zu_open:payments") };
     }
 
-    async function paymentReview(id) {
+    async function paymentReview(id, page = 1) {
         const snapshot = await ref("payment_requests", id).get();
         requireInput(snapshot.exists, "Payment request could not be found.");
         const { userName, status, amount, planName, utrNumber } = snapshot.data();
         const fields = ["Payment review", "ID: " + snapshot.id, "Driver: " + (userName || "Unknown"),
             "Plan: " + (planName || "Unknown"), "Amount: ₹" + amount, "Status: " + status,
             "UTR: " + (utrNumber || "Unavailable")];
-        const actions = status === "pending" ? [["Approve & Activate", "approve"], ["Reject", "reject"]] : [];
-        return { text: fields.join("\n"), markup: { inline_keyboard: [paymentButtons(snapshot.id, actions),
-            [{ text: "Payments", callback_data: "zu_payments:1" }, menuButton]] } };
+        const actions = status === "pending" ? [["Approve & Activate", "approve", page], ["Reject", "reject", page]] : [];
+        return { text: fields.join("\n"), markup: withNavigation({ inline_keyboard: [paymentButtons(snapshot.id, actions)] }, "zu_payments:" + page) };
     }
 
     async function read(command, args) {
@@ -425,25 +424,27 @@ function startTelegramAdmin(db, token, signal, logger = console) {
     async function showResult(chatId, result) {
         await reply(chatId, result.text, result.markup);
     }
-    async function confirmChange(chatId, command, args, description) {
-        confirmation = { command, args, chatId, nonce: randomBytes(12).toString("hex"), expires: Date.now() + 120000 };
-        await reply(chatId, "Confirm this change within 2 minutes:\n" + description, {
+    async function confirmChange(chatId, command, args, description, back) {
+        confirmation = { command, args, chatId, back, nonce: randomBytes(12).toString("hex"), expires: Date.now() + 120000 };
+        await reply(chatId, "Confirm this change within 2 minutes:\n" + description, withNavigation({
             inline_keyboard: [[
                 { text: "Confirm", callback_data: "zu_confirm:" + confirmation.nonce },
                 { text: "Cancel", callback_data: "zu_cancel:" + confirmation.nonce },
             ]],
-        });
+        }, back));
     }
-    async function requestInput(chatId, command, prompt, prefix = []) {
-        const message = await reply(chatId, "Reply with:\n" + prompt + "\n\nUse - for an optional blank field.",
-            { force_reply: true, input_field_placeholder: "Enter details" });
-        input = { chatId, command, prefix, messageId: message.message_id, expires: Date.now() + 300000 };
-    }
-    const homeButton = { inline_keyboard: [[menuButton]] };
+    const backToAction = action => "zu_open:" + actionSection(action);
+    const homeBack = "zu_open:home";
 
-    async function runCommand(chatId, command, args) {
+    async function requestInput(chatId, command, prompt, prefix = [], back = backToAction(command)) {
+        const message = await reply(chatId, "Send:\n" + prompt + "\n\nUse - for an optional blank field.",
+            withNavigation(null, back));
+        input = { chatId, command, prefix, back, messageId: message.message_id, expires: Date.now() + 300000 };
+    }
+
+    async function runCommand(chatId, command, args, back = backToAction(command)) {
         if (command === "id") {
-            await reply(chatId, "Your private chat ID: " + chatId, homeButton);
+            await reply(chatId, "Your private chat ID: " + chatId, withNavigation(null, back));
             return;
         }
         if (command === "payments") {
@@ -463,11 +464,11 @@ function startTelegramAdmin(db, token, signal, logger = console) {
             args = [args[0], "new", ...args.slice(1)];
         }
         if (service.writers.has(command)) {
-            await confirmChange(chatId, command, args, "/" + command + " " + args.join(" | "));
+            await confirmChange(chatId, command, args, "/" + command + " " + args.join(" | "), back);
             return;
         }
         const result = await service.read(command, args);
-        await reply(chatId, result ?? "Unknown command. Open the admin menu.", homeButton);
+        await reply(chatId, result ?? "Unknown command. Open the admin menu.", withNavigation(null, back));
     }
 
     async function handle(update) {
@@ -481,13 +482,18 @@ function startTelegramAdmin(db, token, signal, logger = console) {
             await reply(message.chat.id, "Your private chat ID: " + message.chat.id);
             return;
         }
-        if (!callback && !message.text.startsWith("/") && message.reply_to_message?.message_id !== input?.messageId) return;
+        if (!callback && !message.text.startsWith("/") && !input) return;
         const chatId = explicitOperator || (await service.mirror.get()).get("chatId");
         if (!isOperator(update, chatId)) return;
+        let errorBack = input?.back ?? confirmation?.back ?? homeBack;
         try {
             if (callback) {
                 await api("answerCallbackQuery", { callback_query_id: callback.id });
                 const data = callback.data ?? "";
+                if (!/^zu_(?:confirm|cancel):/.test(data)) {
+                    input = undefined;
+                    confirmation = undefined;
+                }
                 if (data.startsWith("zu_open:")) {
                     const menu = renderMenu(data.slice("zu_open:".length));
                     requireInput(menu, "Menu unavailable. Send /start to reopen it.");
@@ -510,15 +516,16 @@ function startTelegramAdmin(db, token, signal, logger = console) {
                 }
                 if (/^zu_run:[a-z0-9_]+$/.test(data)) {
                     const action = data.slice("zu_run:".length);
-                    input = undefined;
+                    const back = backToAction(action);
+                    errorBack = back;
                     const keyPreset = /^key_(7|30|90|365)_(1|3|5|10|20|30)$/.exec(action);
                     const keyQuantity = /^key_quantity_(7|30|90|365)$/.exec(action);
                     if (keyPreset) {
-                        await runCommand(chatId, "generate_keys", ["vip", keyPreset[1], keyPreset[2]]);
+                        await runCommand(chatId, "generate_keys", ["vip", keyPreset[1], keyPreset[2]], back);
                     } else if (keyQuantity) {
-                        await requestInput(chatId, "generate_keys", "Quantity (1–30)", ["vip", keyQuantity[1]]);
+                        await requestInput(chatId, "generate_keys", "Quantity (1–30)", ["vip", keyQuantity[1]], back);
                     } else if (action === "mirror_on" || action === "mirror_off") {
-                        await runCommand(chatId, "mirror", [action.slice("mirror_".length)]);
+                        await runCommand(chatId, "mirror", [action.slice("mirror_".length)], back);
                     } else if (Object.hasOwn(prompts, action)) {
                         await requestInput(chatId, action, prompts[action]);
                     } else {
@@ -529,25 +536,30 @@ function startTelegramAdmin(db, token, signal, logger = console) {
                 }
                 const selected = /^zu_(payments|review|approve|reject):(.+)$/.exec(callback.data ?? "");
                 if (selected) {
-                    const [, action, id] = selected;
+                    const [, action, target] = selected;
+                    const paged = /^(\d{1,2}):(.+)$/.exec(target);
+                    const page = paged ? integer(paged[1], 1, 50) : 1;
+                    const id = paged ? paged[2] : target;
+                    errorBack = "zu_open:payments";
                     if (action === "payments") {
                         await showResult(chatId, await service.paymentPage(id));
                     } else if (action === "review") {
-                        await showResult(chatId, await service.paymentReview(id));
+                        await showResult(chatId, await service.paymentReview(id, page));
                     } else {
                         documentId(id);
-                        await confirmChange(chatId, action, [id], (action === "approve" ? "Approve & activate " : "Reject ") + id);
+                        await confirmChange(chatId, action, [id], (action === "approve" ? "Approve & activate " : "Reject ") + id, "zu_review:" + page + ":" + id);
                     }
                     return;
                 }
                 if (callback.data === "zu_cancel:" + confirmation?.nonce && confirmation?.chatId === chatId) {
+                    const { back } = confirmation;
                     confirmation = undefined;
-                    await reply(chatId, "Cancelled.", homeButton);
+                    await reply(chatId, "Cancelled.", withNavigation(null, back));
                     return;
                 }
                 requireInput(confirmation?.chatId === chatId && confirmation.expires > Date.now() &&
                     callback.data === "zu_confirm:" + confirmation.nonce, "Confirmation expired. Send the command again.");
-                const { command, args } = confirmation;
+                const { command, args, back } = confirmation;
                 const receipt = db.doc("telegram_admin_actions/" + botId + "-" + update.update_id);
                 const result = await db.runTransaction(async tx => {
                     const auth = await tx.get(service.mirror);
@@ -559,29 +571,32 @@ function startTelegramAdmin(db, token, signal, logger = console) {
                     return result;
                 });
                 confirmation = undefined;
-                if (typeof result === "string") await reply(chatId, result, homeButton);
-                else await showResult(chatId, result);
+                if (typeof result === "string") await reply(chatId, result, withNavigation(null, back));
+                else await showResult(chatId, { ...result, markup: withNavigation(result.markup, back) });
                 return;
             }
             const parsed = parseCommand(message.text);
             if (!parsed) {
-                if (!input || input.chatId !== chatId || message.reply_to_message?.message_id !== input.messageId) return;
+                if (!input || input.chatId !== chatId ||
+                    (message.reply_to_message && message.reply_to_message.message_id !== input.messageId)) return;
                 const request = input;
                 input = undefined;
                 requireInput(request.expires > Date.now(), "This entry expired. Open the action again from the admin menu.");
-                await runCommand(chatId, request.command, [...request.prefix, ...message.text.split("|").map(value => value.trim())]);
+                await runCommand(chatId, request.command, [...request.prefix, ...message.text.split("|").map(value => value.trim())], request.back);
                 return;
             }
             input = undefined;
+            confirmation = undefined;
             if (["start", "admin", "menu"].includes(parsed.command)) {
                 await reply(chatId, "Open any section from the buttons below.", { remove_keyboard: true });
                 await showResult(chatId, renderMenu("home"));
                 return;
             }
+            errorBack = backToAction(parsed.command);
             await runCommand(chatId, parsed.command, parsed.args);
         } catch (error) {
             if (!(error instanceof CommandError)) logger.warn("Telegram admin command failed", { code: error.code ?? "internal" });
-            await reply(chatId, error instanceof CommandError ? error.message : "Could not finish the command. Check the record before retrying.", homeButton);
+            await reply(chatId, error instanceof CommandError ? error.message : "Could not finish the command. Check the record before retrying.", withNavigation(null, errorBack));
         }
     }
     return (async () => {

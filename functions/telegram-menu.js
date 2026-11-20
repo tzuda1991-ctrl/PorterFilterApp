@@ -77,7 +77,24 @@ const prompts = {
     publish_update: "Version code | name | minimum code | HTTPS APK URL | force on/off | release notes | announcement",
 };
 
-const menuButton = { text: "Admin Menu", callback_data: "zu_open:home" };
+const menuButton = { text: "Home", callback_data: "zu_open:home" };
+
+function actionSection(action) {
+    const normalized = action === "mirror" ? "mirror_on" : action;
+    const preset = /^key_(?:quantity_)?(7|30|90|365)(?:_\d+)?$/.exec(action);
+    if (preset) return "key_count_" + preset[1];
+    return Object.entries(sections).find(([, rows]) => rows.flat()
+        .some(entry => entry.split("|")[1] === normalized))?.[0] ?? "home";
+}
+
+function navigationRow(back) {
+    const button = { text: "‹ Back", callback_data: back };
+    return back.endsWith(":home") ? [button] : [button, menuButton];
+}
+
+function withNavigation(markup, back) {
+    return { inline_keyboard: [...(markup?.inline_keyboard ?? []), navigationRow(back)] };
+}
 
 function renderMenu(section) {
     const quantity = /^key_count_(7|30|90|365)$/.exec(section);
@@ -93,8 +110,9 @@ function renderMenu(section) {
         return { text, callback_data: action.startsWith("@") ? "zu_menu:" + action.slice(1) : "zu_run:" + action };
     }));
     if (section !== "home") {
-        const home = { ...menuButton, callback_data: "zu_menu:home" };
-        keyboard.push(back ? [{ text: "Back", callback_data: "zu_menu:" + back }, home] : [home]);
+        const row = navigationRow("zu_menu:" + (back ?? "home"));
+        if (row.length === 2) row[1] = { ...menuButton, callback_data: "zu_menu:home" };
+        keyboard.push(row);
     }
     return {
         text: quantity ? "Choose quantity for " + quantity[1] + "-day VIP keys" : headings[section],
@@ -111,9 +129,9 @@ function keyResult(keys) {
             copy_text: { text: batch.join("\n") },
         }]);
     }
-    rows.push([{ text: "Generate More", callback_data: "zu_open:key_plan" }, menuButton]);
+    rows.push([{ text: "Generate More", callback_data: "zu_open:key_plan" }]);
     return { text: keys.length + " license key" + (keys.length === 1 ? "" : "s") + " generated\n\n" + keys.join("\n"),
         markup: { inline_keyboard: rows } };
 }
 
-module.exports = { renderMenu, prompts, menuButton, keyResult };
+module.exports = { renderMenu, prompts, withNavigation, actionSection, keyResult };

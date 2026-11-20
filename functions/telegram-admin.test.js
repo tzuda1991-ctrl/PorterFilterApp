@@ -102,3 +102,37 @@ test("copy buttons keep maximum-size batches within Telegram's limit", () => {
     assert.ok(buttons.every(button => button.copy_text.text.length <= 256));
     assert.deepEqual(buttons.flatMap(button => button.copy_text.text.split("\n")), keys);
 });
+
+test("each submenu has Back and results return to their own section", () => {
+    const { renderMenu, withNavigation, actionSection } = require("./telegram-menu");
+    for (const section of ["drivers", "plans", "payments", "keys", "cities", "orders", "alerts", "settings", "updates"]) {
+        assert.deepEqual(renderMenu(section).markup.inline_keyboard.at(-1), [
+            { text: "‹ Back", callback_data: "zu_menu:home" },
+        ]);
+    }
+    assert.equal(renderMenu("key_count_30").markup.inline_keyboard.at(-1)[0].callback_data, "zu_menu:key_validity");
+    assert.equal(renderMenu("key_validity").markup.inline_keyboard.at(-1)[0].callback_data, "zu_menu:key_plan");
+    assert.equal(actionSection("drivers"), "drivers");
+    assert.equal(actionSection("save_plan"), "plans");
+    assert.equal(actionSection("key_quantity_90"), "key_count_90");
+    assert.equal(actionSection("key_365_30"), "key_count_365");
+    assert.deepEqual(withNavigation(null, "zu_open:drivers").inline_keyboard[0], [
+        { text: "‹ Back", callback_data: "zu_open:drivers" },
+        { text: "Home", callback_data: "zu_open:home" },
+    ]);
+});
+
+test("review and confirmation targets preserve the payment page", async () => {
+    const id = "PAY-50b2b431-c8d3-4633-a570-9fdffd692d11";
+    const data = { userName: "Driver", planName: "Weekly", status: "pending", amount: 100, utrNumber: "012345678900" };
+    const snapshot = { exists: true, id, data: () => data };
+    const query = { orderBy: () => query, offset: () => query, limit: () => query,
+        get: async () => ({ docs: [snapshot], size: 1 }), doc: () => ({ get: async () => snapshot }) };
+    const service = commands({ collection: () => query, doc: () => ({}) });
+    const listing = await service.paymentPage("3");
+    assert.equal(listing.markup.inline_keyboard[0][1].callback_data, "zu_review:3:" + id);
+    assert.equal(listing.markup.inline_keyboard.at(-1)[0].callback_data, "zu_open:payments");
+    const review = await service.paymentReview(id, 3);
+    assert.equal(review.markup.inline_keyboard[0][1].callback_data, "zu_approve:3:" + id);
+    assert.equal(review.markup.inline_keyboard.at(-1)[0].callback_data, "zu_payments:3");
+});
