@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var saveProfileButton: Button
     private lateinit var userBox: TextView
     private lateinit var planBadge: TextView
+    private lateinit var planValidityText: TextView
 
     private var isUpdatingSwitches = false
     private var selectedSpeed = "QUICK"
@@ -289,28 +290,19 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(Color.parseColor("#42536D"))
             })
         }
-        val savedPlan = prefs.getString("USER_PLAN", "TRIAL") ?: "TRIAL"
-        planBadge = TextView(this).apply {
-            text = savedPlan
-            textSize = 12f
-            setTextColor(Color.parseColor("#8A5D13"))
+        val plansButton = Button(this).apply {
+            text = "Plans"
+            isAllCaps = false
             typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            maxLines = 2
-            ellipsize = TextUtils.TruncateAt.END
-            maxWidth = dp(112)
-            setPadding(dp(10), dp(5), dp(10), dp(5))
+            setTextColor(Color.parseColor("#805514"))
             background = createNeonBox("#FFF2CF", "#C79838", 20)
-            setOnClickListener {
-                val active = !prefs.getBoolean("BOT_ACTIVE", true)
-                prefs.edit().putBoolean("BOT_ACTIVE", active).apply()
-                updatePermissionStatus()
-                if (Settings.canDrawOverlays(this@MainActivity)) startFloatingWidget()
-            }
+            minimumHeight = dp(44)
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            setOnClickListener { showDriverProfileAndValidityDialog(showPlans = true) }
         }
         topHeader.addView(logoImg)
         topHeader.addView(titleCol)
-        topHeader.addView(planBadge, LinearLayout.LayoutParams(wrap, wrap).apply { marginStart = dp(5) })
+        topHeader.addView(plansButton, LinearLayout.LayoutParams(wrap, wrap).apply { marginStart = dp(5) })
         headerCard.addView(topHeader, LinearLayout.LayoutParams(match, wrap))
         headerCard.addView(View(this).apply {
             setBackgroundColor(Color.parseColor("#E7EDF5"))
@@ -342,7 +334,37 @@ class MainActivity : AppCompatActivity() {
             compoundDrawablePadding = dp(8)
             setOnClickListener { showDriverProfileAndValidityDialog() }
         }
-        accountRow.addView(userBox, LinearLayout.LayoutParams(0, wrap, 1f).apply { marginEnd = dp(6) })
+        val driverSummary = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBaselineAligned(false)
+        }
+        driverSummary.addView(userBox, LinearLayout.LayoutParams(wrap, wrap).apply {
+            width = 0
+            weight = 1f
+            marginEnd = dp(5)
+        })
+        val planSummary = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.START
+        }
+        planValidityText = TextView(this).apply {
+            textSize = 10f
+            setTextColor(Color.parseColor("#42536D"))
+            setPadding(dp(4), 0, 0, dp(2))
+        }
+        planBadge = TextView(this).apply {
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#805514"))
+            setPadding(dp(7), dp(3), dp(7), dp(3))
+            background = createNeonBox("#FFF2CF", "#E1C389", 10)
+        }
+        planSummary.addView(planValidityText, LinearLayout.LayoutParams(match, wrap))
+        planSummary.addView(planBadge)
+        driverSummary.addView(planSummary, LinearLayout.LayoutParams(0, wrap, 1.65f))
+        accountRow.addView(driverSummary, LinearLayout.LayoutParams(0, wrap, 1f).apply { marginEnd = dp(6) })
+        updatePlanBadge()
         headerCard.addView(accountRow, LinearLayout.LayoutParams(match, wrap))
         mainCol.addView(headerCard, LinearLayout.LayoutParams(match, wrap).apply { bottomMargin = dp(7) })
 
@@ -965,7 +987,9 @@ class MainActivity : AppCompatActivity() {
         updatePermissionStatus()
         accountListener?.remove()
         accountListener = ZuAutoCloudManager.monitorAccount(this, onRestored = {
-            if (lockReason == "expired" && !isFinishing && !isDestroyed) recreate()
+            if (!isFinishing && !isDestroyed) {
+                if (lockReason == "expired") recreate() else if (!accessLocked) updatePlanBadge()
+            }
         }, onRestricted = ::lockDriverAccess)
     }
 
@@ -1405,7 +1429,7 @@ class MainActivity : AppCompatActivity() {
 
 
     // ---------------- DRIVER PROFILE & VALIDITY / BUY DIALOG ----------------
-    private fun showDriverProfileAndValidityDialog() {
+    private fun showDriverProfileAndValidityDialog(showPlans: Boolean = false) {
         val loading = AlertDialog.Builder(this)
             .setMessage("Checking subscription…")
             .show()
@@ -1413,7 +1437,7 @@ class MainActivity : AppCompatActivity() {
             if (accessLocked || isFinishing || isDestroyed || !loading.isShowing) return@syncDriverValidityFromCloud
             loading.dismiss()
             updatePlanBadge()
-            renderDriverProfile(synced)
+            renderDriverProfile(synced, showPlans)
         }
     }
 
@@ -1425,12 +1449,18 @@ class MainActivity : AppCompatActivity() {
             "deleted" -> "Deleted"
             else -> prefs.getString("USER_PLAN", "TRIAL") ?: "TRIAL"
         }
+        val expiresAt = prefs.getLong("PLAN_EXPIRES_AT_MILLIS", 0L)
+        planValidityText.text = if (expiresAt > 0L) {
+            val formatted = SimpleDateFormat("dd MMM yyyy, h:mm a z", Locale.getDefault()).format(Date(expiresAt))
+            val label = if (expiresAt <= System.currentTimeMillis()) "Expired" else "Valid until"
+            "$label $formatted"
+        } else "Validity unavailable"
         val driverName = prefs.getString("USER_NAME", "Driver") ?: "Driver"
         userBox.text = "$driverName ▾"
         userBox.setTextColor(Color.parseColor("#10264D"))
     }
 
-    private fun renderDriverProfile(synced: Boolean) {
+    private fun renderDriverProfile(synced: Boolean, showPlans: Boolean = false) {
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
         val name = prefs.getString("USER_NAME", "Driver") ?: "Driver"
         val phone = prefs.getString("USER_PHONE", "--") ?: "--"
@@ -1447,7 +1477,7 @@ class MainActivity : AppCompatActivity() {
         val renewalWindow = java.util.concurrent.TimeUnit.HOURS.toMillis(48)
         val status = prefs.getString("DRIVER_ACCOUNT_STATUS", "active")
         val accountAvailable = status != "suspended" && status != "deleted"
-        val canPurchase = synced && accountAvailable && (isTrial || isExpired ||
+        val canPurchase = synced && accountAvailable && (showPlans || isTrial || isExpired ||
             (expiresAtMillis > now && expiresAtMillis - now <= renewalWindow))
         val durationDays = prefs.getInt("PLAN_DURATION_DAYS", 0)
         val startedAt = prefs.getLong("PLAN_STARTED_AT_MILLIS", 0L)
@@ -1494,7 +1524,7 @@ class MainActivity : AppCompatActivity() {
         profileCol.addView(metaTv)
         headRow.addView(avatar)
         headRow.addView(profileCol)
-        root.addView(headRow)
+        if (!showPlans) root.addView(headRow)
 
         // Validity Card
         val validityCard = LinearLayout(this).apply {
@@ -1563,7 +1593,7 @@ class MainActivity : AppCompatActivity() {
 
         // Plans Section Title
         val plansTitle = TextView(this).apply {
-            text = if (isTrial) "Choose a paid plan" else "Renew subscription"
+            text = if (showPlans) "Available plans" else if (isTrial) "Choose a paid plan" else "Renew subscription"
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#00E5FF"))
@@ -1672,6 +1702,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(actionsRow)
 
         mainDialog = AlertDialog.Builder(this)
+            .apply { if (showPlans) setTitle("Plans") }
             .setView(root)
             .create()
         purchaseDialog = mainDialog

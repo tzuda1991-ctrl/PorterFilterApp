@@ -132,7 +132,10 @@ object ZuAutoCloudManager {
                     }
                     val expiry = expiryField("validUntil") ?: expiryField("planExpiresAt")
                     if (expiry != null) {
-                        prefs.edit().putLong("PLAN_EXPIRES_AT_MILLIS", expiry).apply()
+                        val editor = prefs.edit().putLong("PLAN_EXPIRES_AT_MILLIS", expiry)
+                        snapshot.getString("planName")?.takeIf { it.isNotBlank() }
+                            ?.let { editor.putString("USER_PLAN", it) }
+                        editor.apply()
                         watchExpiry(expiry)
                     }
                 }
