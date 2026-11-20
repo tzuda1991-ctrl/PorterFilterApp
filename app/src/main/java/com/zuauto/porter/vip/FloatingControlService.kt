@@ -28,9 +28,16 @@ class FloatingControlService : Service() {
     private lateinit var statusToggleBtn: TextView
     private lateinit var params: WindowManager.LayoutParams
 
+    private var accountListener: com.google.firebase.firestore.ListenerRegistration? = null
+
     override fun onCreate() {
         super.onCreate()
         startForegroundShield()
+        if (!ZuAutoCloudManager.isUserRegistered(this)) {
+            stopSelf()
+            return
+        }
+        accountListener = ZuAutoCloudManager.monitorAccount(this) { stopSelf() }
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val prefs = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
 
@@ -235,6 +242,7 @@ class FloatingControlService : Service() {
     }
 
     override fun onDestroy() {
+        accountListener?.remove()
         super.onDestroy()
         if (::floatingBar.isInitialized) {
             try { windowManager.removeView(floatingBar) } catch (_: Exception) {}

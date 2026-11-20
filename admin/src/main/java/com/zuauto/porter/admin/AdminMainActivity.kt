@@ -996,6 +996,58 @@ class AdminMainActivity : AppCompatActivity() {
     }
 
     // ---------------- PAYMENTS VERIFICATION TAB ----------------
+    private fun showSupportSettings() {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), 0, dp(18), 0)
+        }
+        val phone = EditText(this).apply {
+            hint = "Support phone with country code"
+            inputType = InputType.TYPE_CLASS_PHONE
+        }
+        val whatsapp = EditText(this).apply {
+            hint = "WhatsApp number with country code"
+            inputType = InputType.TYPE_CLASS_PHONE
+        }
+        form.addView(phone)
+        form.addView(whatsapp)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Support contact")
+            .setView(form)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .show()
+        val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        save.isEnabled = false
+        val document = com.zu.auth.SupportContact.document()
+        document.get(com.google.firebase.firestore.Source.SERVER).addOnCompleteListener { task ->
+            if (!dialog.isShowing) return@addOnCompleteListener
+            if (task.isSuccessful) {
+                phone.setText(task.result.getString("phone").orEmpty())
+                whatsapp.setText(task.result.getString("whatsapp").orEmpty())
+                save.isEnabled = true
+            } else {
+                Toast.makeText(this, "Could not load support settings.", Toast.LENGTH_LONG).show()
+                dialog.dismiss()
+            }
+        }
+        save.setOnClickListener {
+            val numbers = listOf(phone, whatsapp)
+            val values = numbers.map { it.text.toString().trim().replace(Regex("[ ()-]"), "") }
+            val invalid = values.indexOfFirst { it.isNotEmpty() && !it.matches(Regex("[+][1-9][0-9]{7,14}")) }
+            if (invalid >= 0) {
+                numbers[invalid].error = "Use an international number such as +919876543210"
+                return@setOnClickListener
+            }
+            save.isEnabled = false
+            document.set(mapOf("phone" to values[0], "whatsapp" to values[1])).addOnCompleteListener { task ->
+                save.isEnabled = true
+                if (task.isSuccessful) dialog.dismiss()
+                Toast.makeText(this, if (task.isSuccessful) "Support contact saved." else "Save failed.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun showPaymentSettings() {
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1057,6 +1109,10 @@ class AdminMainActivity : AppCompatActivity() {
         col.addView(Button(this).apply {
             text = "UPI & QR SETTINGS"
             setOnClickListener { showPaymentSettings() }
+        })
+        col.addView(Button(this).apply {
+            text = "SUPPORT CONTACT"
+            setOnClickListener { showSupportSettings() }
         })
         col.addView(headTv)
 

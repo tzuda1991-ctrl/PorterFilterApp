@@ -1,6 +1,7 @@
 package com.zuauto.porter.vip
 
 import android.content.Context
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONArray
@@ -76,6 +77,44 @@ object ZuAutoCloudManager {
                 }
             }.getOrNull()
             mainHandler.post { callback(result?.first, result?.second) }
+        }
+    }
+
+    fun monitorAccount(
+        context: Context,
+        onRestricted: (String) -> Unit
+    ): com.google.firebase.firestore.ListenerRegistration? {
+        val uid = auth.currentUser?.uid ?: return null
+        val prefs = context.getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
+        return com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            .collection("users").document(uid)
+            .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { snapshot, error ->
+                val restriction = when {
+                    error?.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> "restricted"
+                    snapshot == null || snapshot.metadata.isFromCache -> null
+                    !snapshot.exists() || snapshot.getString("status") == "deleted" -> "deleted"
+                    snapshot.getString("status") in listOf("blocked", "suspended") -> "suspended"
+                    snapshot.getLong("sessionAuthTime") == 0L -> "restricted"
+                    else -> null
+                }
+                if (restriction != null) {
+                    prefs.edit()
+                        .putString("DRIVER_ACCOUNT_STATUS", restriction)
+                        .putBoolean("IS_REGISTERED", false)
+                        .putBoolean("BOT_ACTIVE", false)
+                        .apply()
+                    context.stopService(Intent(context, FloatingControlService::class.java))
+                    onRestricted(restriction)
+                }
+            }
+    }
+
+    fun fetchSupportContact(callback: (com.zu.auth.SupportContact?) -> Unit) {
+        com.zu.auth.SupportContact.document().get().addOnCompleteListener { task ->
+            val snapshot = if (task.isSuccessful) task.result else null
+            callback(snapshot?.let {
+                com.zu.auth.SupportContact(it.getString("phone").orEmpty(), it.getString("whatsapp").orEmpty())
+            })
         }
     }
 

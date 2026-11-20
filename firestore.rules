@@ -58,7 +58,8 @@ service cloud.firestore {
     }
 
     match /app_config/{document} {
-      allow get: if activeDriverSession() && document in ['version_control', 'payment_settings'];
+      allow get: if (document == 'support' && verifiedGoogleAccount())
+        || (activeDriverSession() && document in ['version_control', 'payment_settings']);
     }
 
     match /subscription_plans/{plan} {

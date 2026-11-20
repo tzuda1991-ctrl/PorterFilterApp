@@ -25,6 +25,10 @@ import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
+    private var accountListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var accessLocked = false
+    private var restrictionDialog: AlertDialog? = null
+
     private lateinit var minFareInput: EditText
     private lateinit var fareSwitch: Switch
     private lateinit var pickupSwitch: Switch
@@ -126,8 +130,12 @@ class MainActivity : AppCompatActivity() {
             message.text = "Checking driver access…"
             ZuAutoCloudManager.connectGoogleDriver(this) { ready, error ->
                 if (isFinishing || isDestroyed) return@connectGoogleDriver
+                val status = getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE)
+                    .getString("DRIVER_ACCOUNT_STATUS", "")
                 if (ready) {
                     showDriverDashboard()
+                } else if (status == "suspended" || status == "deleted") {
+                    lockDriverAccess(status)
                 } else {
                     message.text = error
                     button.text = "Try again"
@@ -258,6 +266,7 @@ class MainActivity : AppCompatActivity() {
         addNavItem("🏠", "Home", true) {}
         addNavItem("📦", "History", false) { showOrderHistoryDialog() }
         addNavItem("🏍️", "Porter", false) { launchPorterPartnerApp(this) }
+        addNavItem("☎", "Support", false) { showSupportContact() }
         addNavItem("⚙️", "Settings", false) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
@@ -1045,6 +1054,66 @@ class MainActivity : AppCompatActivity() {
         }
         setContentView(masterRoot)
         updateSystemStatusBar()
+        accountListener?.remove()
+        accountListener = ZuAutoCloudManager.monitorAccount(this, ::lockDriverAccess)
+    }
+
+    private fun supportMessage(contact: com.zu.auth.SupportContact?): String {
+        if (contact == null) return "Support contact unavailable."
+        return listOfNotNull(
+            contact.phone.takeIf { it.isNotBlank() }?.let { "Phone: $it" },
+            contact.whatsapp.takeIf { it.isNotBlank() }?.let { "WhatsApp: $it" }
+        ).joinToString("\n").ifBlank { "Support contact has not been configured." }
+    }
+
+    private fun showSupportContact() {
+        if (accessLocked) return
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Support")
+            .setMessage("Loading support contact…")
+            .setPositiveButton("Close", null)
+            .show()
+        ZuAutoCloudManager.fetchSupportContact { contact ->
+            if (dialog.isShowing && !accessLocked) dialog.setMessage(supportMessage(contact))
+        }
+    }
+
+    private fun lockDriverAccess(reason: String) {
+        if (accessLocked || isFinishing || isDestroyed) return
+        accessLocked = true
+        getSharedPreferences("ZuAutoPrefs", Context.MODE_PRIVATE).edit()
+            .putBoolean("IS_REGISTERED", false)
+            .putBoolean("BOT_ACTIVE", false)
+            .apply()
+        stopService(Intent(this, FloatingControlService::class.java))
+        accountListener?.remove()
+        accountListener = null
+        setContentView(FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#10264D")) })
+
+        val title = when (reason) {
+            "suspended" -> "Account blocked"
+            "deleted" -> "Driver profile removed"
+            else -> "Driver access restricted"
+        }
+        val explanation = "Contact support for help."
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage("$explanation\n\nLoading support contact…")
+            .setCancelable(false)
+            .setPositiveButton("Close app") { _, _ -> finishAndRemoveTask() }
+            .create()
+        restrictionDialog = dialog
+        dialog.show()
+        dialog.setCanceledOnTouchOutside(false)
+        ZuAutoCloudManager.fetchSupportContact { contact ->
+            if (dialog.isShowing) dialog.setMessage("$explanation\n\n${supportMessage(contact)}")
+        }
+    }
+
+    override fun onDestroy() {
+        accountListener?.remove()
+        restrictionDialog?.dismiss()
+        super.onDestroy()
     }
 
     private fun dashboardAction(
@@ -1150,6 +1219,7 @@ class MainActivity : AppCompatActivity() {
     // ---------------- FIRST-TIME REGISTRATION DIALOG ----------------
     // ---------------- MANDATORY OTA IN-APP UPDATE DIALOG ----------------
     private fun showUpdateDialog(isForce: Boolean, newVersionName: String, releaseNotes: String, downloadUrl: String) {
+        if (accessLocked || isFinishing || isDestroyed) return
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(16), dp(20), dp(16))
@@ -1325,7 +1395,7 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Checking subscription…")
             .show()
         ZuAutoCloudManager.syncDriverValidityFromCloud(this) { synced ->
-            if (isFinishing || isDestroyed || !loading.isShowing) return@syncDriverValidityFromCloud
+            if (accessLocked || isFinishing || isDestroyed || !loading.isShowing) return@syncDriverValidityFromCloud
             loading.dismiss()
             updatePlanBadge()
             renderDriverProfile(synced)
@@ -1588,7 +1658,7 @@ class MainActivity : AppCompatActivity() {
     // ---------------- UPI CHECKOUT & UTR PROOF SUBMISSION DIALOG ----------------
     private fun showUpiCheckoutDialog(plan: ZuAutoCloudManager.SubscriptionPlan) {
         ZuAutoCloudManager.fetchPaymentSettings { upiId, qrUrl ->
-            if (isFinishing || isDestroyed) return@fetchPaymentSettings
+            if (accessLocked || isFinishing || isDestroyed) return@fetchPaymentSettings
             if (upiId.isNullOrBlank()) {
                 Toast.makeText(this, "Payment settings unavailable. Try again later.", Toast.LENGTH_LONG).show()
             } else {
@@ -1852,7 +1922,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (!::footerSystemText.isInitialized || !ZuAutoCloudManager.isUserRegistered(this)) return
+        if (accessLocked || !::footerSystemText.isInitialized || !ZuAutoCloudManager.isUserRegistered(this)) return
         updateSystemStatusBar()
         if (ZuAutoCloudManager.isUserRegistered(this)) {
             ZuAutoCloudManager.syncDriverValidityFromCloud(this) { synced ->
