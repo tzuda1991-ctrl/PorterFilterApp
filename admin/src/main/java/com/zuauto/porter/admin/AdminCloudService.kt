@@ -224,6 +224,14 @@ object AdminCloudService {
             expectedExpiry = driver.planExpiresAt)
     }
 
+    fun scheduleDriverExpiry(driver: DriverItem, delayMinutes: Long, callback: (Boolean) -> Unit) {
+        val scheduled = java.time.Instant.now().plusSeconds(delayMinutes * 60)
+        val previous = runCatching { java.time.Instant.parse(driver.planExpiresAt) }.getOrNull()
+        val expiry = (previous?.let { minOf(it, scheduled) } ?: scheduled).toString()
+        changeDriver(driver.uid, mapOf("validUntil" to expiry, "planExpiresAt" to expiry), callback,
+            expectedExpiry = driver.planExpiresAt)
+    }
+
     fun deleteDriver(uid: String, callback: (Boolean) -> Unit) =
         changeDriver(uid, mapOf("status" to "deleted"), callback)
 

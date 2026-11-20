@@ -1062,24 +1062,74 @@ class MainActivity : AppCompatActivity() {
         }, onRestricted = ::lockDriverAccess)
     }
 
-    private fun supportMessage(contact: com.zu.auth.SupportContact?): String {
-        if (contact == null) return "Support contact unavailable."
-        return listOfNotNull(
-            contact.phone.takeIf { it.isNotBlank() }?.let { "Phone: $it" },
-            contact.whatsapp.takeIf { it.isNotBlank() }?.let { "WhatsApp: $it" }
-        ).joinToString("\n").ifBlank { "Support contact has not been configured." }
+    private fun openExternalAction(intent: Intent, unavailable: String) {
+        try {
+            startActivity(intent)
+        } catch (_: android.content.ActivityNotFoundException) {
+            Toast.makeText(this, unavailable, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun supportPanel(explanation: String? = null): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(22), dp(8), dp(22), dp(8))
+        addView(TextView(context).apply {
+            text = listOfNotNull(explanation, "Loading support contact…").joinToString("\n\n")
+        })
+    }
+
+    private fun loadSupportActions(dialog: AlertDialog, panel: LinearLayout, explanation: String? = null) {
+        ZuAutoCloudManager.fetchSupportContact { contact ->
+            if (!dialog.isShowing) return@fetchSupportContact
+            panel.removeAllViews()
+            explanation?.let { message ->
+                panel.addView(TextView(this).apply {
+                    text = message
+                    setPadding(0, 0, 0, dp(8))
+                })
+            }
+            fun addAction(label: String, icon: Int, action: () -> Unit) {
+                panel.addView(Button(this).apply {
+                    text = label
+                    isAllCaps = false
+                    minimumHeight = dp(48)
+                    setCompoundDrawablesWithIntrinsicBounds(icon, 0, 0, 0)
+                    compoundDrawablePadding = dp(8)
+                    setOnClickListener { action() }
+                })
+            }
+            val phone = contact?.phone.orEmpty()
+            val whatsapp = contact?.whatsapp.orEmpty()
+            if (phone.isNotBlank()) addAction("Call  $phone", android.R.drawable.ic_menu_call) {
+                openExternalAction(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", phone, null)), "No phone app found.")
+            }
+            if (whatsapp.isNotBlank()) addAction("WhatsApp  $whatsapp", R.drawable.ic_support_whatsapp) {
+                val chat = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${whatsapp.filter(Char::isDigit)}"))
+                for (appPackage in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+                    try {
+                        startActivity(Intent(chat).setPackage(appPackage))
+                        return@addAction
+                    } catch (_: android.content.ActivityNotFoundException) {}
+                }
+                openExternalAction(chat, "WhatsApp is unavailable.")
+            }
+            if (phone.isBlank() && whatsapp.isBlank()) {
+                panel.addView(TextView(this).apply {
+                    text = if (contact == null) "Support contact unavailable." else "Support contact has not been configured."
+                })
+            }
+        }
     }
 
     private fun showSupportContact() {
         if (accessLocked) return
+        val panel = supportPanel()
         val dialog = AlertDialog.Builder(this)
             .setTitle("Support")
-            .setMessage("Loading support contact…")
+            .setView(panel)
             .setPositiveButton("Close", null)
             .show()
-        ZuAutoCloudManager.fetchSupportContact { contact ->
-            if (dialog.isShowing && !accessLocked) dialog.setMessage(supportMessage(contact))
-        }
+        loadSupportActions(dialog, panel)
     }
 
     private fun lockDriverAccess(reason: String) {
@@ -1105,9 +1155,10 @@ class MainActivity : AppCompatActivity() {
             else -> "Driver access restricted"
         }
         val explanation = if (reason == "expired") "Renew your plan to restore access." else "Contact support for help."
+        val panel = supportPanel(explanation)
         val dialog = AlertDialog.Builder(this)
             .setTitle(title)
-            .setMessage("$explanation\n\nLoading support contact…")
+            .setView(panel)
             .setCancelable(false)
             .setPositiveButton("Close app") { _, _ -> finishAndRemoveTask() }
             .apply { if (reason == "expired") setNeutralButton("Renew plan", null) }
@@ -1120,9 +1171,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         dialog.setCanceledOnTouchOutside(false)
-        ZuAutoCloudManager.fetchSupportContact { contact ->
-            if (dialog.isShowing) dialog.setMessage("$explanation\n\n${supportMessage(contact)}")
-        }
+        loadSupportActions(dialog, panel, explanation)
     }
 
     override fun onDestroy() {
@@ -1758,29 +1807,99 @@ class MainActivity : AppCompatActivity() {
         upiBox.addView(upiIdTv)
         upiBox.addView(copyBtn)
         root.addView(upiBox)
-        if (Uri.parse(qrUrl).scheme == "https") {
-            val qrImage = android.widget.ImageView(this).apply {
-                contentDescription = "UPI payment QR code"
-                visibility = View.GONE
-                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        val paymentUri = Uri.Builder()
+            .scheme("upi")
+            .authority("pay")
+            .appendQueryParameter("pa", upiId)
+            .appendQueryParameter("pn", "ZU Smart")
+            .appendQueryParameter("am", "${plan.price}.00")
+            .appendQueryParameter("cu", "INR")
+            .appendQueryParameter("tn", plan.name)
+            .build()
+        val qrImage = ImageView(this).apply {
+            contentDescription = "UPI payment QR code for ₹${plan.price}"
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        root.addView(qrImage, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(172)))
+        val qrNote = TextView(this).apply {
+            text = "Scan with a UPI app on another phone"
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#CBD5E1"))
+            textSize = 12f
+        }
+        root.addView(qrNote)
+        Thread {
+            val generated = runCatching {
+                val size = 384
+                val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(
+                    paymentUri.toString(), com.google.zxing.BarcodeFormat.QR_CODE, size, size
+                )
+                val pixels = IntArray(size * size) { index ->
+                    if (matrix[index % size, index / size]) Color.BLACK else Color.WHITE
+                }
+                Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
+            }.getOrNull()
+            runOnUiThread {
+                if (!isDestroyed) {
+                    qrImage.setImageBitmap(generated)
+                    if (generated == null) qrNote.text = "QR unavailable. Use Pay now or copy the UPI ID."
+                }
             }
-            root.addView(qrImage, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(160)))
-            Thread {
-                val bitmap = runCatching {
-                    val connection = java.net.URL(qrUrl).openConnection().apply {
-                        connectTimeout = 8000
-                        readTimeout = 8000
+            val customUri = Uri.parse(qrUrl)
+            if (customUri.scheme == "https" && !customUri.host.isNullOrBlank()) {
+                val custom = runCatching {
+                    val connection = java.net.URL(qrUrl).openConnection() as java.net.HttpURLConnection
+                    try {
+                        connection.connectTimeout = 5000
+                        connection.readTimeout = 5000
+                        val bytes = connection.inputStream.use { input ->
+                            val output = java.io.ByteArrayOutputStream()
+                            val buffer = ByteArray(8192)
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                check(output.size() + count <= 2_000_000)
+                                output.write(buffer, 0, count)
+                            }
+                            output.toByteArray()
+                        }
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                        check(bounds.outWidth in 1..1600 && bounds.outHeight in 1..1600)
+                        val image = checkNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
+                        val pixels = IntArray(image.width * image.height)
+                        image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
+                        val source = com.google.zxing.RGBLuminanceSource(image.width, image.height, pixels)
+                        val qr = com.google.zxing.qrcode.QRCodeReader().decode(
+                            com.google.zxing.BinaryBitmap(com.google.zxing.common.HybridBinarizer(source))
+                        )
+                        val link = Uri.parse(qr.text)
+                        val amount = link.getQueryParameter("am")
+                        check(link.scheme == "upi" && link.host == "pay" &&
+                            link.getQueryParameter("pa").equals(upiId, ignoreCase = true) &&
+                            (amount.isNullOrBlank() || amount.toBigDecimalOrNull()?.compareTo(plan.price.toBigDecimal()) == 0))
+                        image
+                    } finally {
+                        connection.disconnect()
                     }
-                    connection.getInputStream().use { android.graphics.BitmapFactory.decodeStream(it) }
                 }.getOrNull()
-                runOnUiThread {
-                    if (bitmap != null && !isDestroyed) {
-                        qrImage.setImageBitmap(bitmap)
-                        qrImage.visibility = View.VISIBLE
+                if (custom != null) runOnUiThread {
+                    if (!isDestroyed) {
+                        qrImage.setImageBitmap(custom)
+                        qrNote.text = "Scan on another phone and verify ₹${plan.price} before paying"
                     }
                 }
-            }.start()
-        }
+            }
+        }.start()
+        root.addView(Button(this).apply {
+            text = "Pay now · ₹${plan.price}"
+            isAllCaps = false
+            minimumHeight = dp(48)
+            setOnClickListener {
+                openExternalAction(Intent.createChooser(Intent(Intent.ACTION_VIEW, paymentUri), "Choose a UPI app"),
+                    "No UPI app found. Use the QR or copy the UPI ID.")
+            }
+        })
 
         // UTR Input
         val utrLabel = TextView(this).apply {

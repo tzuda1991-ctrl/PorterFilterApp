@@ -560,6 +560,27 @@ class AdminMainActivity : AppCompatActivity() {
                 .setNegativeButton("Cancel", null)
                 .show()
         }
+        action("Schedule plan expiry") {
+            val options = arrayOf("Now", "In 5 minutes", "In 20 minutes", "In 1 day")
+            val delays = longArrayOf(0, 5, 20, 1440)
+            AlertDialog.Builder(this)
+                .setTitle("Expire plan for ${driver.name}")
+                .setItems(options) { _, selected ->
+                    AlertDialog.Builder(this)
+                        .setTitle("Confirm plan expiry")
+                        .setMessage("Expire ${driver.name}'s plan ${options[selected].lowercase(Locale.ROOT)}?")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Confirm") { _, _ ->
+                            dialog.dismiss()
+                            AdminCloudService.scheduleDriverExpiry(driver, delays[selected]) {
+                                finishDriverChange(it, "Plan expiry updated.")
+                            }
+                        }
+                        .show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
         val toggle = if (blocked) "Unblock driver" else "Block driver"
         action(toggle) {
             AlertDialog.Builder(this)
@@ -1155,9 +1176,13 @@ class AdminMainActivity : AppCompatActivity() {
             setPadding(dp(20), 0, dp(20), 0)
         }
         val upi = EditText(this).apply { hint = "UPI ID" }
-        val qr = EditText(this).apply { hint = "HTTPS QR image URL (optional)" }
+        val qr = EditText(this).apply { hint = "Custom QR image URL (HTTPS)" }
         form.addView(upi)
         form.addView(qr)
+        form.addView(TextView(this).apply {
+            text = "Leave blank to generate a QR from the saved UPI ID and plan amount."
+            setPadding(0, dp(6), 0, dp(6))
+        })
         val dialog = AlertDialog.Builder(this)
             .setTitle("Payment settings")
             .setView(form)
