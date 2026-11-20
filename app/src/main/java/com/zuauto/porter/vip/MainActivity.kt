@@ -1600,7 +1600,9 @@ class MainActivity : AppCompatActivity() {
             val joined = if (joinedAt > 0) {
                 SimpleDateFormat("dd MMM yyyy, h:mm a z", Locale.getDefault()).format(Date(joinedAt))
             } else "Unavailable"
-            text = "Mobile: $phone\nCity: $city\nJoined: $joined"
+            val displayId = com.zu.auth.DriverNumber.label(prefs.getLong("USER_DRIVER_NUMBER", 0L))
+                ?: "Pending"
+            text = "Driver ID: $displayId\nMobile: $phone\nCity: $city\nJoined: $joined"
             textSize = 13f
             setTextColor(Color.parseColor("#94A3B8"))
         }

@@ -474,7 +474,7 @@ class AdminMainActivity : AppCompatActivity() {
         fun renderMatches(query: String) {
             itemsCol.removeAllViews()
             val matches = driverList.filter { driver ->
-                listOf(driver.name, driver.phone, driver.uid, driver.city).any {
+                listOf(driver.name, driver.phone, driver.displayId.orEmpty(), driver.city).any {
                     it.contains(query.trim(), ignoreCase = true)
                 }
             }
@@ -488,7 +488,8 @@ class AdminMainActivity : AppCompatActivity() {
             for (driver in matches) {
                 itemsCol.addView(TextView(this).apply {
                     val status = if (driver.status.equals("active", true)) "Active" else "Blocked"
-                    text = "${driver.name}   ›\n${driver.phone} · ${driver.city}\n$status · ${driver.plan}\n${driverValidity(driver)}"
+                    val identifier = driver.displayId?.let { " · $it" }.orEmpty()
+                    text = "${driver.name}   ›$identifier\n${driver.phone} · ${driver.city}\n$status · ${driver.plan}\n${driverValidity(driver)}"
                     textSize = 14f
                     setTextColor(Color.WHITE)
                     setPadding(dp(14), dp(12), dp(14), dp(12))
@@ -498,7 +499,25 @@ class AdminMainActivity : AppCompatActivity() {
                         setStroke(dp(1), Color.parseColor("#314664"))
                     }
                     layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(9) }
-                    setOnClickListener { showDriverDetails(driver) }
+                    setOnClickListener {
+                        if (driver.displayId != null) {
+                            showDriverDetails(driver)
+                        } else {
+                            val loading = AlertDialog.Builder(this@AdminMainActivity)
+                                .setMessage("Assigning Driver ID…").show()
+                            com.zu.auth.DriverNumber.allocate(driver.uid).addOnCompleteListener { task ->
+                                if (!loading.isShowing || isFinishing || isDestroyed) return@addOnCompleteListener
+                                loading.dismiss()
+                                if (task.isSuccessful) {
+                                    showDriverDetails(driver.copy(driverNumber = task.result))
+                                    refreshData()
+                                } else {
+                                    Toast.makeText(this@AdminMainActivity, "Could not assign Driver ID. Check Firestore rules.", Toast.LENGTH_LONG).show()
+                                    showDriverDetails(driver)
+                                }
+                            }
+                        }
+                    }
                 })
             }
         }
@@ -738,7 +757,7 @@ class AdminMainActivity : AppCompatActivity() {
             setPadding(dp(18), dp(10), dp(18), dp(10))
         }
         panel.addView(TextView(this).apply {
-            text = "Driver ID: ${driver.uid}\nPhone: ${driver.phone}\nCity: ${driver.city}\nVehicle: ${driver.vehicle}\nStatus: ${if (blocked) "Blocked" else "Active"}\nPlan: ${driver.plan}\n${driverValidity(driver)}"
+            text = "Driver ID: ${driver.displayId ?: "Pending"}\nPhone: ${driver.phone}\nCity: ${driver.city}\nVehicle: ${driver.vehicle}\nStatus: ${if (blocked) "Blocked" else "Active"}\nPlan: ${driver.plan}\n${driverValidity(driver)}"
             textSize = 15f
             setPadding(0, 0, 0, dp(12))
         })
@@ -824,7 +843,7 @@ class AdminMainActivity : AppCompatActivity() {
         action("Delete profile") {
             AlertDialog.Builder(this)
                 .setTitle("Delete ${driver.name}?")
-                .setMessage("This removes ${driver.uid} from the driver list and disables access. Payment and order records stay in history.")
+                .setMessage("This removes ${driver.displayId ?: driver.name} from the driver list and disables access. Payment and order records stay in history.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete profile") { _, _ ->
                     dialog.dismiss()

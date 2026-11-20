@@ -39,7 +39,51 @@ service cloud.firestore {
             || (exists(catalog) && profile.city in get(catalog).data.cities));
     }
 
+    function driverNumberCounter() {
+      return /databases/$(database)/documents/counters/driver_numbers;
+    }
+
+    function nextDriverNumber() {
+      let counter = driverNumberCounter();
+      return exists(counter) ? get(counter).data.lastNumber + 1 : 211126;
+    }
+
+    function assignsDriverNumber(uid) {
+      let counter = getAfter(driverNumberCounter()).data;
+      return resource.data.get('driverNumber', 0) == 0
+        && resource.data.status != 'deleted'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['driverNumber'])
+        && request.resource.data.driverNumber == nextDriverNumber()
+        && counter.lastNumber == request.resource.data.driverNumber
+        && counter.lastUid == uid;
+    }
+
+    function validCounterAssignment() {
+      let data = request.resource.data;
+      let profile = /databases/$(database)/documents/users/$(data.lastUid);
+      return data.keys().hasOnly(['lastNumber', 'lastUid'])
+        && data.lastUid is string
+        && data.lastNumber is int
+        && data.lastNumber == nextDriverNumber()
+        && (isAdmin() || (activeDriverSession() && data.lastUid == request.auth.uid))
+        && exists(profile)
+        && get(profile).data.status != 'deleted'
+        && get(profile).data.get('driverNumber', 0) == 0
+        && getAfter(profile).data.driverNumber == data.lastNumber;
+    }
+
+    match /counters/driver_numbers {
+      allow get: if isAdmin() || activeDriverSession();
+      allow create, update: if validCounterAssignment();
+    }
+
     match /users/{uid} {
+      allow read, delete: if isAdmin();
+      allow create: if isAdmin() && !('driverNumber' in request.resource.data);
+      allow update: if isAdmin()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['driverNumber']);
+      allow update: if (isAdmin() || (ownGoogleAccount(uid) && activeDriverSession()))
+        && assignsDriverNumber(uid);
       allow get: if ownGoogleAccount(uid) && (
         resource == null || resource.data.sessionAuthTime == request.auth.token.auth_time
         || resource.data.sessionAuthTime == 0
@@ -116,7 +160,7 @@ service cloud.firestore {
 
     match /{collection}/{document} {
       allow read, write: if collection in [
-        'users', 'orders', 'payment_requests', 'license_keys',
+        'orders', 'payment_requests', 'license_keys',
         'app_config', 'subscription_plans'
       ] && isAdmin();
     }

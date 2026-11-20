@@ -59,8 +59,11 @@ object AdminCloudService {
         val vehicle: String,
         val status: String,
         val plan: String,
-        val planExpiresAt: String
-    )
+        val planExpiresAt: String,
+        val driverNumber: Long = 0L
+    ) {
+        val displayId get() = com.zu.auth.DriverNumber.label(driverNumber)
+    }
 
     data class OrderItem(
         val orderId: String,
@@ -193,7 +196,8 @@ object AdminCloudService {
                         if (status == "deleted") continue
                         val plan = f.optJSONObject("planName")?.optString("stringValue", "VIP") ?: "VIP"
                         val exp = driverExpiry(f)
-                        list.add(DriverItem(uid, name, phone, city, vehicle, status, plan, exp))
+                        val driverNumber = f.optJSONObject("driverNumber")?.optLong("integerValue", 0L) ?: 0L
+                        list.add(DriverItem(uid, name, phone, city, vehicle, status, plan, exp, driverNumber))
                     }
                 }
             } catch (_: Exception) {}

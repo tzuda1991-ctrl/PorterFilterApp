@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONArray
 import com.zu.auth.PaymentSettings
+import com.zu.auth.DriverNumber
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -338,8 +339,17 @@ object ZuAutoCloudManager {
                     syncDriverValidityFromCloud(context) { synced ->
                         if (synced && auth.currentUser?.uid == user.uid &&
                             prefs.getString("DRIVER_ACCOUNT_STATUS", "") == "active") {
-                            prefs.edit().putBoolean("IS_REGISTERED", true).apply()
-                            callback(true, "")
+                            DriverNumber.allocate(user.uid).addOnCompleteListener { task ->
+                                if (auth.currentUser?.uid != user.uid) {
+                                    callback(false, "Google account changed. Sign in again.")
+                                } else if (task.isSuccessful) {
+                                    prefs.edit().putLong("USER_DRIVER_NUMBER", task.result)
+                                        .putBoolean("IS_REGISTERED", true).apply()
+                                    callback(true, "")
+                                } else {
+                                    callback(false, "Could not assign Driver ID. Try again or contact support.")
+                                }
+                            }
                         } else {
                             callback(false, "Driver access unavailable. Check your connection or contact admin.")
                         }
@@ -397,6 +407,8 @@ object ZuAutoCloudManager {
                         "city" to "USER_CITY", "vehicle" to "USER_VEHICLE").forEach { (field, preference) ->
                         value(field).takeIf { it.isNotBlank() }?.let { editor.putString(preference, it) }
                     }
+                    editor.putLong("USER_DRIVER_NUMBER",
+                        fields.optJSONObject("driverNumber")?.optLong("integerValue", 0L) ?: 0L)
                     val joinedAt = parseDate(value("joinedAt")) ?: parseDate(value("registeredAt"))
                         ?: auth.currentUser?.metadata?.creationTimestamp ?: 0L
                     editor.putLong("USER_JOINED_AT_MILLIS", joinedAt).apply()
