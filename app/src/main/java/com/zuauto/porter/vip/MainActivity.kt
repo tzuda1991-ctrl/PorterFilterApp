@@ -308,7 +308,7 @@ class MainActivity : AppCompatActivity() {
         val heroBanner = ImageView(this).apply {
             contentDescription = "Delivery scooter in front of Vidhana Soudha"
             setImageResource(R.drawable.sapphire_bengaluru)
-            scaleType = ImageView.ScaleType.FIT_CENTER
+            scaleType = ImageView.ScaleType.CENTER_CROP
             background = createNeonBox("#F7FAFF", "#C79838", 18)
             clipToOutline = true
         }
@@ -527,13 +527,13 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val rh1 = TextView(this).apply {
-            text = "ROUTE ZONE FILTER"
+            text = "Pickup & drop"
             textSize = 15f
             setTextColor(Color.parseColor("#10264D"))
             typeface = Typeface.DEFAULT_BOLD
         }
         val rh2 = TextView(this).apply {
-            text = "(Auto-disables fare limit when active)"
+            text = "Zone filters turn off minimum fare"
             textSize = 12f
             setTextColor(Color.parseColor("#42536D"))
         }
@@ -543,18 +543,14 @@ class MainActivity : AppCompatActivity() {
         val pickupTogglePill = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), dp(2), dp(4), dp(2))
-            background = createNeonBox("#E2F3EA", "#10B981", 10)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { rightMargin = dp(4) }
+            layoutParams = LinearLayout.LayoutParams(match, wrap)
         }
         val pToggleLabel = TextView(this).apply {
             text = "Pickup zone"
             textSize = 12f
             setTextColor(Color.parseColor("#10264D"))
             typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
         }
         pickupSwitch = Switch(this).apply {
             isChecked = prefs.getBoolean("USE_PICKUP_FILTER", false)
@@ -566,14 +562,14 @@ class MainActivity : AppCompatActivity() {
         val dropTogglePill = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), dp(2), dp(4), dp(2))
-            background = createNeonBox("#FCE8EC", "#F43F5E", 10)
+            layoutParams = LinearLayout.LayoutParams(match, wrap)
         }
         val dToggleLabel = TextView(this).apply {
             text = "Drop zone"
             textSize = 12f
             setTextColor(Color.parseColor("#10264D"))
             typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
         }
         dropSwitch = Switch(this).apply {
             isChecked = prefs.getBoolean("USE_DROP_FILTER", false)
@@ -597,7 +593,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(4))
-            background = createNeonBox("#F0FAF5", "#10B981", 12)
+            background = createNeonBox("#FFFFFF", "#D9E4F0", 12)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -611,7 +607,7 @@ class MainActivity : AppCompatActivity() {
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(4))
-            background = createNeonBox("#E2F3EA", "#10B981", 8)
+            background = createNeonBox("#EDF6F5", "#EDF6F5", 8)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -624,7 +620,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(4))
-            background = createNeonBox("#FFF4F5", "#F43F5E", 12)
+            background = createNeonBox("#FFFFFF", "#D9E4F0", 12)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -638,7 +634,7 @@ class MainActivity : AppCompatActivity() {
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(4))
-            background = createNeonBox("#FCE8EC", "#F43F5E", 8)
+            background = createNeonBox("#FAEFF2", "#FAEFF2", 8)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -971,25 +967,20 @@ class MainActivity : AppCompatActivity() {
         val shortcuts = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
-        fun addShortcut(label: String, action: () -> Unit) {
-            shortcuts.addView(TextView(this).apply {
-                text = label
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                minimumHeight = dp(48)
-                setPadding(dp(4), dp(6), dp(4), dp(6))
-                setTextColor(Color.parseColor("#10264D"))
-                background = createNeonBox("#F7FAFF", "#C79838", 12)
-                setOnClickListener { action() }
+        fun addShortcut(label: String, icon: Int, action: () -> Unit) {
+            shortcuts.addView(dashboardAction(label, icon) { action() }.apply {
+                minimumHeight = dp(58)
+                background = createNeonBox("#FFFFFF", "#D9B36A", 14)
             }, LinearLayout.LayoutParams(0, wrap, 1f).apply {
-                marginStart = dp(2)
-                marginEnd = dp(2)
+                marginStart = dp(3)
+                marginEnd = dp(3)
             })
         }
-        addShortcut("Porter") { launchPorterPartnerApp(this) }
-        addShortcut("Floating HUD") { hudBtn.performClick() }
-        addShortcut("Permissions") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        addShortcut("Porter", R.drawable.ic_dashboard_porter) { launchPorterPartnerApp(this) }
+        addShortcut("Overlay", R.drawable.ic_dashboard_hud) { hudBtn.performClick() }
+        addShortcut("Setup", R.drawable.ic_dashboard_setup) {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
         mainCol.addView(shortcuts, shortcutIndex, LinearLayout.LayoutParams(match, wrap).apply {
             bottomMargin = dp(10)
         })
@@ -1012,21 +1003,19 @@ class MainActivity : AppCompatActivity() {
                 setPadding(dp(6), dp(3), dp(6), dp(3))
                 background = createNeonBox("#F8FBFF", "#C79838", 14)
             }
-            fun addBottomItem(label: String, action: (View) -> Unit) {
-                bottomNav.addView(TextView(this).apply {
-                    text = label
-                    textSize = 12f
-                    typeface = Typeface.DEFAULT_BOLD
-                    gravity = Gravity.CENTER
-                    minimumHeight = dp(48)
-                    setTextColor(Color.parseColor("#10264D"))
-                    setOnClickListener { action(it) }
-                }, LinearLayout.LayoutParams(0, wrap, 1f))
+            fun addBottomItem(label: String, icon: Int, selected: Boolean = false, action: (View) -> Unit) {
+                bottomNav.addView(dashboardAction(label, icon, selected, action),
+                    LinearLayout.LayoutParams(0, wrap, 1f).apply {
+                        marginStart = dp(2)
+                        marginEnd = dp(2)
+                    })
             }
-            addBottomItem("Home") { contentScroll.smoothScrollTo(0, 0) }
-            addBottomItem("Trips") { showOrderHistoryDialog() }
-            addBottomItem("Profile") { showDriverProfileAndValidityDialog() }
-            addBottomItem("Menu") { anchor ->
+            addBottomItem("Home", R.drawable.ic_dashboard_home, selected = true) {
+                contentScroll.smoothScrollTo(0, 0)
+            }
+            addBottomItem("Trips", R.drawable.ic_dashboard_trips) { showOrderHistoryDialog() }
+            addBottomItem("Profile", R.drawable.ic_dashboard_profile) { showDriverProfileAndValidityDialog() }
+            addBottomItem("More", R.drawable.ic_dashboard_more) { anchor ->
                 PopupMenu(this, anchor).apply {
                     navActions.keys.filter { it != "Home" && it != "History" }
                         .forEach { this.menu.add(it) }
@@ -1040,6 +1029,31 @@ class MainActivity : AppCompatActivity() {
             masterRoot.addView(bottomNav, LinearLayout.LayoutParams(match, wrap))
         }
         setContentView(masterRoot)
+    }
+
+    private fun dashboardAction(
+        label: String,
+        icon: Int,
+        selected: Boolean = false,
+        action: (View) -> Unit
+    ): TextView = TextView(this).apply {
+        val tint = Color.parseColor(if (selected) "#FFFFFF" else "#16345D")
+        text = label
+        textSize = 12f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        minimumHeight = dp(54)
+        setPadding(dp(3), dp(5), dp(3), dp(5))
+        setTextColor(tint)
+        compoundDrawablePadding = dp(3)
+        val symbol = checkNotNull(context.getDrawable(icon)).mutate().apply {
+            setBounds(0, 0, dp(20), dp(20))
+            setTint(if (selected) Color.parseColor("#F6D78D") else tint)
+        }
+        setCompoundDrawables(null, symbol, null, null)
+        isSelected = selected
+        if (selected) background = createNeonBox("#132C51", "#C79838", 12)
+        setOnClickListener { action(it) }
     }
 
     private fun createCyberActionPill(
@@ -1212,7 +1226,7 @@ class MainActivity : AppCompatActivity() {
                     licenseKey = if (k.isNotEmpty()) k else null
                 ) { success, msg ->
                     Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-                    userBox.text = Html.fromHtml("<font color='#94A3B8'>Driver</font><br><b><font color='#FFFFFF'>$n ▾</font></b>", Html.FROM_HTML_MODE_LEGACY)
+                    userBox.text = Html.fromHtml("<font color='#42536D'>Driver</font><br><b><font color='#10264D'>$n ▾</font></b>", Html.FROM_HTML_MODE_LEGACY)
                     dialog.dismiss()
                 }
             }
