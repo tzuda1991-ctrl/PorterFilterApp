@@ -33,7 +33,7 @@ jobs:
       - name: Build Debug APKs
         env:
           ZU_APK_STORE_PASSWORD: ${{ secrets.ZU_APK_STORE_PASSWORD }}
-        run: gradle assembleDebug "-PzuVersionCode=$ZU_VERSION_CODE" "-PzuVersionName=$ZU_VERSION_NAME"
+        run: gradle :app:testDebugUnitTest assembleDebug "-PzuVersionCode=$ZU_VERSION_CODE" "-PzuVersionName=$ZU_VERSION_NAME"
       - name: Verify APK certificates
         run: |
           apk_signer="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"

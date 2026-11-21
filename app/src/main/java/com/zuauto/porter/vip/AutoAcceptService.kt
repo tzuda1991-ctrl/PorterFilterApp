@@ -95,56 +95,15 @@ class AutoAcceptService : AccessibilityService() {
         }
 
         val acceptNode = targetAcceptNode ?: return
-        val acceptCenterY = acceptNode.bounds.centerY()
 
-        var detectedOrderFare: Int? = null
-        var fareBottomY = 0
-        var topMostY = Int.MAX_VALUE
-
-        val priceWithSymbolRegex = Regex("""^\s*₹\s*(\d+(?:,\d+)*)\s*$""")
-        val pureNumberRegex = Regex("""^\s*(\d{2,5})\s*$""")
-
-        for (item in nodes) {
-            if (item.bounds.centerY() < acceptCenterY) {
-                val match = priceWithSymbolRegex.find(item.text)
-                if (match != null) {
-                    val priceVal = match.groupValues[1].replace(",", "").toIntOrNull()
-                    if (priceVal != null && item.bounds.top < topMostY) {
-                        topMostY = item.bounds.top
-                        detectedOrderFare = priceVal
-                        fareBottomY = item.bounds.bottom
-                    }
-                }
-            }
-        }
-
+        val fareNodes = nodes.filter { it.bounds.bottom <= acceptNode.bounds.top }
+        val fare = OrderFare.distinctFare(fareNodes.map { it.text }) ?: return
+        val orderFare = fare.toInt()
+        val fareBottomY = fareNodes.filter { OrderFare.fromLabel(it.text) == fare }
+            .minOf { it.bounds.bottom }
         val kmRegex = Regex("""\(\s*\d+(?:\.\d+)?\s*km\s*\)""", RegexOption.IGNORE_CASE)
 
-        if (detectedOrderFare == null) {
-            var firstKmTopY = acceptCenterY
-            for (item in nodes) {
-                if (kmRegex.containsMatchIn(item.text) && item.bounds.top < firstKmTopY) {
-                    firstKmTopY = item.bounds.top
-                }
-            }
-
-            for (item in nodes) {
-                if (item.bounds.centerY() < firstKmTopY) {
-                    val cleanText = item.text.replace("₹", "").replace(",", "").trim()
-                    val match = pureNumberRegex.find(cleanText)
-                    if (match != null) {
-                        val priceVal = match.groupValues[1].toIntOrNull()
-                        if (priceVal != null && item.bounds.top < topMostY) {
-                            topMostY = item.bounds.top
-                            detectedOrderFare = priceVal
-                            fareBottomY = item.bounds.bottom
-                        }
-                    }
-                }
-            }
-        }
-
-        val orderFare = detectedOrderFare ?: return
+        if (prefs.getBoolean("USE_FARE_FILTER", true) && orderFare < prefs.getInt("MIN_FARE", 200)) return
 
         val locationNodes = nodes.filter {
             it.bounds.top >= fareBottomY - 15 &&
@@ -204,15 +163,10 @@ class AutoAcceptService : AccessibilityService() {
                 }
                 if (!dropOk) return
             }
-        } else {
-            val useFareFilter = prefs.getBoolean("USE_FARE_FILTER", true)
-            if (useFareFilter) {
-                val minFare = prefs.getInt("MIN_FARE", 200)
-                if (orderFare < minFare) return
-            }
         }
 
         val speedMode = prefs.getString("SWIPE_SPEED", "QUICK") ?: "QUICK"
+        if (!performSpeedSlide(acceptNode.bounds, speedMode)) return
         lastSwipeTime = currentTime
 
         // Log to local history and Cloud Firestore
@@ -229,12 +183,11 @@ class AutoAcceptService : AccessibilityService() {
         mainHandler.post {
             Toast.makeText(
                 applicationContext,
-                "⚡ ZuAuto VIP: ₹$orderFare Accepted ($speedMode)",
+                "ZuAuto: ₹$orderFare acceptance attempted",
                 Toast.LENGTH_SHORT
             ).show()
         }
 
-        performSpeedSlide(acceptNode.bounds, speedMode)
     }
 
     private fun matchesAreaInAddressBlock(addressBlock: String, selectedArea: String): Boolean {
@@ -283,7 +236,7 @@ class AutoAcceptService : AccessibilityService() {
         }
     }
 
-    private fun performSpeedSlide(acceptBounds: Rect, speedMode: String) {
+    private fun performSpeedSlide(acceptBounds: Rect, speedMode: String): Boolean {
         val metrics = resources.displayMetrics
         val slideY = if (acceptBounds.centerY() > 100) acceptBounds.centerY().toFloat() else metrics.heightPixels * 0.44f
         val startX = metrics.widthPixels * 0.15f
@@ -305,7 +258,7 @@ class AutoAcceptService : AccessibilityService() {
             .addStroke(GestureDescription.StrokeDescription(path, delayMs, durationMs))
             .build()
 
-        dispatchGesture(gesture, null, null)
+        return dispatchGesture(gesture, null, null)
     }
 
     override fun onInterrupt() {}

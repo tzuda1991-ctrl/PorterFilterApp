@@ -1448,7 +1448,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val headTv = TextView(this).apply {
-            text = "📦 Accepted Trips History (${history.size})"
+            text = "📦 Auto-accept History (${history.size})"
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -1468,7 +1468,7 @@ class MainActivity : AppCompatActivity() {
 
         if (history.isEmpty()) {
             val emptyTv = TextView(this).apply {
-                text = "No trips auto-accepted yet.\nTurn on Bot and start Porter to receive rides."
+                text = "No auto-accept attempts recorded on this device."
                 textSize = 12f
                 setTextColor(Color.parseColor("#94A3B8"))
                 gravity = Gravity.CENTER

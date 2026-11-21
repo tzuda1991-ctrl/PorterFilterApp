@@ -609,7 +609,7 @@ object ZuAutoCloudManager {
         val timeStr = sdf.format(Date())
 
         val historyStr = prefs.getString("LOCAL_ORDER_HISTORY", "[]") ?: "[]"
-        val list = JSONArray(historyStr)
+        val list = runCatching { JSONArray(historyStr) }.getOrElse { JSONArray() }
         val newOrderObj = JSONObject().apply {
             put("orderId", orderId)
             put("fare", fare)
@@ -665,7 +665,7 @@ object ZuAutoCloudManager {
         try {
             val jsonArr = JSONArray(historyStr)
             for (i in (jsonArr.length() - 1) downTo 0) {
-                val o = jsonArr.getJSONObject(i)
+                val o = jsonArr.optJSONObject(i) ?: continue
                 list.add(
                     OrderRecord(
                         orderId = o.optString("orderId"),
